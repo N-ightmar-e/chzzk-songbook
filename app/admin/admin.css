@@ -1,0 +1,846 @@
+.admin {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px 120px;
+}
+
+.admin-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 0 26px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-top h1 {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.admin-top p {
+  margin-top: 4px;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 28px;
+}
+
+.mode-toggle button {
+  padding: 9px 18px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--muted);
+  transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out);
+}
+
+.mode-toggle button:hover {
+  color: var(--ink);
+}
+
+.mode-toggle button[aria-pressed="true"] {
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+.admin-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 356px;
+  gap: 40px;
+  align-items: start;
+}
+
+/* display:grid가 UA의 [hidden] 규칙을 이기므로 명시적으로 숨긴다 */
+.admin-body[hidden] {
+  display: none;
+}
+
+/* ───── CSV 불러오기 ───── */
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 34px 24px;
+  text-align: center;
+  border: 1px dashed oklch(0.38 0.02 25);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out);
+}
+
+.dropzone:hover,
+.dropzone.dragging {
+  border-color: var(--primary);
+  border-style: solid;
+  background: var(--surface-2);
+}
+
+.dropzone strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.dropzone span {
+  font-size: 0.82rem;
+  color: var(--muted);
+  max-width: 62ch;
+  line-height: 1.6;
+  word-break: keep-all;
+}
+
+.csv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.csv-status {
+  margin-top: 14px;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.csv-status.ok {
+  color: oklch(0.72 0.15 150);
+}
+
+.csv-status.error {
+  color: oklch(0.75 0.16 25);
+}
+
+.csv-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 24px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.csv-summary span {
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.csv-summary .file {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.csv-summary .warn {
+  color: var(--accent);
+  border-color: transparent;
+  background: var(--accent-soft);
+}
+
+.csv-note {
+  margin-top: 9px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.csv-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.csv-toolbar .btn {
+  padding: 6px 13px;
+  font-size: 0.82rem;
+}
+
+.csv-table-wrap {
+  margin-top: 12px;
+  max-height: 460px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.csv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  white-space: nowrap;
+}
+
+.csv-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: var(--surface-2);
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.csv-table td {
+  padding: 9px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid oklch(0.29 0.012 25 / 0.45);
+  vertical-align: middle;
+}
+
+.csv-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.csv-table tbody tr:hover td {
+  background: var(--surface-2);
+}
+
+.csv-table .row-error td {
+  background: oklch(0.62 0.19 25 / 0.07);
+}
+
+.csv-table .pick {
+  width: 52px;
+  text-align: center;
+}
+
+.csv-table .pick input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.csv-table .pick input:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.csv-table .num {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.csv-table .strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.csv-table .blank {
+  color: oklch(0.72 0.15 25);
+  font-weight: 500;
+}
+
+.csv-table .alias {
+  margin-left: 6px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.csv-table .notes {
+  white-space: normal;
+  min-width: 200px;
+}
+
+.pill {
+  display: inline-block;
+  margin: 1px 4px 1px 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.pill-error {
+  background: oklch(0.62 0.19 25 / 0.16);
+  border-color: transparent;
+  color: oklch(0.8 0.14 25);
+}
+
+.csv-submit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.csv-submit .btn {
+  padding: 11px 22px;
+}
+
+.csv-submit .hint {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ───── 폼 ───── */
+
+.form-section + .form-section {
+  margin-top: 34px;
+  padding-top: 30px;
+  border-top: 1px solid oklch(0.29 0.012 25 / 0.5);
+}
+
+.form-section > h2 {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin-bottom: 3px;
+}
+
+.form-section > .hint {
+  font-size: 0.83rem;
+  color: var(--muted);
+  margin-bottom: 18px;
+}
+
+.field {
+  margin-bottom: 18px;
+}
+
+.field > label,
+.field > .label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 7px;
+}
+
+.field .sub {
+  font-weight: 500;
+  color: var(--muted);
+  margin-left: 6px;
+  font-size: 0.8rem;
+}
+
+.text-input {
+  width: 100%;
+  padding: 10px 13px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out);
+}
+
+.text-input::placeholder {
+  color: var(--muted);
+}
+
+.text-input:hover:not(:disabled) {
+  border-color: oklch(0.4 0.02 25);
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.text-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.text-input[aria-invalid="true"] {
+  border-color: oklch(0.62 0.19 25);
+}
+
+.field-error {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: oklch(0.75 0.16 25);
+}
+
+.input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.input-row .text-input {
+  flex: 1;
+}
+
+/* ───── 별칭 칩 ───── */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px 5px 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.chip button {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1;
+  transition: background-color 140ms var(--ease-out), color 140ms var(--ease-out);
+}
+
+.chip button:hover {
+  background: oklch(0.62 0.19 25 / 0.2);
+  color: oklch(0.8 0.14 25);
+}
+
+.suggests {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.suggests .caption {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.suggest {
+  text-decoration: none;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px dashed oklch(0.38 0.02 25);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  transition: color 140ms var(--ease-out), border-color 140ms var(--ease-out),
+    background-color 140ms var(--ease-out);
+}
+
+.suggest:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  border-style: solid;
+  background: var(--accent-soft);
+}
+
+/* ───── 자켓 ───── */
+
+.jacket-field {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.jacket-preview {
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+  overflow: hidden;
+}
+
+.jacket-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+}
+
+/* ───── 장르 ───── */
+
+.genre-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.genre-grid button {
+  padding: 7px 15px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--muted);
+  transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out),
+    border-color 150ms var(--ease-out);
+}
+
+.genre-grid button:hover {
+  color: var(--ink);
+}
+
+.genre-grid button[aria-pressed="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+
+/* ───── 키 스테퍼 ───── */
+
+.key-stepper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.key-stepper .step {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--ink);
+  transition: background-color 140ms var(--ease-out), border-color 140ms var(--ease-out);
+}
+
+.key-stepper .step:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: oklch(0.42 0.02 25);
+}
+
+.key-stepper .step:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.key-stepper .value {
+  min-width: 92px;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.key-stepper .value.shifted {
+  color: var(--accent);
+}
+
+.notice {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.notice strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.key-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+/* ───── 가격 ───── */
+
+.price-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.price-row .preset {
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  transition: background-color 150ms var(--ease-out), color 150ms var(--ease-out),
+    border-color 150ms var(--ease-out);
+}
+
+.price-row .preset:hover {
+  color: var(--ink);
+}
+
+.price-row .preset[aria-pressed="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+
+.price-custom {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+}
+
+.price-custom .text-input {
+  width: 116px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ───── 유튜브 미리보기 ───── */
+
+.yt-frame {
+  margin-top: 14px;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: oklch(0.09 0 0);
+}
+
+.yt-frame iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.yt-meta {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.yt-meta .name {
+  color: var(--ink);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ───── 미리보기 패널 ───── */
+
+.preview-panel {
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.preview-panel > h2 {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.preview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.preview-card .art {
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.preview-card .art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.preview-card .title {
+  font-weight: 800;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.preview-card .artist {
+  margin-top: 3px;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.preview-card .foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.preview-card .price {
+  font-weight: 800;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.badge {
+  font-size: 0.73rem;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.badge-key {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.match-box {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.match-box h3 {
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.match-box p {
+  font-size: 0.79rem;
+  color: var(--muted);
+  margin-bottom: 9px;
+}
+
+.match-terms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.match-term {
+  font-size: 0.79rem;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.submit-area {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.submit-area .btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 0.95rem;
+}
+
+.submit-area .status {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.submit-area .status.error {
+  color: oklch(0.75 0.16 25);
+}
+
+.submit-area .status.ok {
+  color: oklch(0.72 0.15 150);
+}
+
+@media (max-width: 1000px) {
+  .admin-body {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .preview-panel {
+    position: static;
+  }
+  .preview-card .art {
+    aspect-ratio: 16 / 9;
+  }
+}
+
+@media (max-width: 560px) {
+  .admin {
+    padding: 0 16px 96px;
+  }
+  .price-custom {
+    margin-left: 0;
+    width: 100%;
+  }
+  .price-custom .text-input {
+    flex: 1;
+    width: auto;
+  }
+}
