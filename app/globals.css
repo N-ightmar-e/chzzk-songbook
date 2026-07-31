@@ -728,6 +728,19 @@ input {
   }
 }
 
+/* ───── 랜딩 ───── */
+.landing { max-width: 40rem; margin: 0 auto; padding: 4rem 1.25rem; }
+.landing h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+.landing-lead { color: var(--muted); margin-bottom: 2rem; }
+.landing-error { color: var(--danger, #f87171); font-size: 0.875rem; margin-bottom: 1rem; }
+.landing-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 3rem; }
+.landing-how h2 { font-size: 1.125rem; margin-bottom: 0.75rem; }
+.landing-how ol { display: grid; gap: 0.5rem; padding-left: 1.25rem; color: var(--muted); }
+.landing-how code {
+  padding: 0.125rem 0.375rem; border-radius: 0.25rem;
+  background: var(--surface, rgba(255,255,255,0.06));
+}
+
 /* 리스트는 그리드보다 늦게 무너진다 — 5열이 들어갈 폭까지는 표 형태를 유지 */
 @media (max-width: 680px) {
   .song-row {
