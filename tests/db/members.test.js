@@ -127,6 +127,15 @@ describeDb("lib/db/members", () => {
     expect(await isManager(book.id, owner.id)).toBe(false);
   });
 
+  it("동시에 같은 토큰을 수락하면 한 명만 통과한다", async () => {
+    const { token } = await createInvite(book.id, owner.id);
+    const [resultA, resultB] = await Promise.all([
+      acceptInvite(token, a.id),
+      acceptInvite(token, b.id),
+    ]);
+    expect([resultA.status, resultB.status].sort()).toEqual(["accepted", "invalid"]);
+  });
+
   it("초대 만료는 7일이다", async () => {
     const { expiresAt } = await createInvite(book.id, owner.id);
     const days = (new Date(expiresAt).getTime() - Date.now()) / 86_400_000;
