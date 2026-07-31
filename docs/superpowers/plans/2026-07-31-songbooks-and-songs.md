@@ -3072,6 +3072,59 @@ import { failed } from "@/lib/db/errors";
 
 수정 후 `pnpm test:db` 가 여전히 74개 통과하고 실행 시간이 줄었는지 확인한다.
 
+- [ ] **Step 3f: `jacketPath` 를 임의 값으로 덮어쓰지 못하게 한다**
+
+`PATCH /api/songs/[id]` 가 `input` 을 그대로 `updateSong` 에 넘긴다. `jacketPath` 는
+`toRow` 의 매핑에 있으므로, 매니저가 **업로드 흐름(매직바이트 검증)을 건너뛰고** 임의
+문자열로 덮어쓸 수 있다. 남의 노래책 자켓 경로를 가리키게 만드는 것도 가능하다.
+
+매니저 권한이 필요해 파급력은 제한적이지만, 이 필드는 `uploadJacket` 이 돌려준 경로만
+들어와야 한다. `app/api/songs/[id]/route.js` 의 PATCH 에서 검증을 추가한다.
+
+`import { JACKETS_BUCKET } from "@/lib/storage";` 는 필요 없고, 경로 형식만 확인한다:
+
+```js
+    // jacketPath 는 uploadJacket 이 돌려준 경로여야 한다.
+    // 임의 문자열을 허용하면 매직바이트 검증을 우회해 남의 자켓을 가리킬 수 있다.
+    if (input?.jacketPath !== undefined && input.jacketPath !== null) {
+      const expected = new RegExp(
+        `^${existing.songbookId}/[0-9a-f-]{36}\\.(jpg|png|webp)$`,
+      );
+      if (!expected.test(String(input.jacketPath))) {
+        return NextResponse.json({ error: "자켓 경로가 올바르지 않아요." }, { status: 400 });
+      }
+    }
+```
+
+`existing` 은 `requireSongAccess` 가 돌려준 곡이다. 이 검사를 `validateSongInput` 직후,
+`updateSong` 호출 **앞에** 넣는다.
+
+통합 테스트에 케이스를 추가한다(`tests/integration/songs.test.js` 의 "곡 API 인가" 스위트):
+
+```js
+  it("자켓 경로를 임의 값으로 덮어쓸 수 없다", async () => {
+    const song = await createSong(book.id, SONG);
+    const res = await fetch(`${server.baseUrl}/api/songs/${song.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ jacketPath: "../다른노래책/훔친자켓.png" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("업로드가 돌려준 형식의 자켓 경로는 받는다", async () => {
+    const song = await createSong(book.id, SONG);
+    const valid = `${book.id}/00000000-0000-0000-0000-000000000000.webp`;
+    const res = await fetch(`${server.baseUrl}/api/songs/${song.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ jacketPath: valid }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).song.jacketPath).toBe(valid);
+  });
+```
+
 - [ ] **Step 4: 검증**
 
 Run: `pnpm test`
@@ -3081,7 +3134,7 @@ Run: `pnpm test:db`
 Expected: 69 passed (기존 74 − 삭제한 authz 5)
 
 Run: `pnpm test:e2e`
-Expected: 39 passed
+Expected: 41 passed
 
 - [ ] **Step 5: 커밋**
 
@@ -3096,7 +3149,7 @@ git commit -m "test: 이연 항목 정리하고 인가 검증을 통합 테스�
 
 - [ ] `pnpm test` 64 passed
 - [ ] `pnpm test:db` 69 passed
-- [ ] `pnpm test:e2e` 39 passed
+- [ ] `pnpm test:e2e` 41 passed
 - [ ] `pnpm build` 통과
 - [ ] **`app/api/songs/route.js`, `app/api/songs/bulk/route.js`, `app/api/upload/route.js` 가 존재하지 않는다**
 - [ ] `grep -rn "getDb()" app/` 결과 없음 — 라우트가 DB를 직접 만지지 않는다
