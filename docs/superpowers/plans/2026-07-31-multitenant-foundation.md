@@ -1574,6 +1574,24 @@ describeDb("lib/db/tokens", () => {
     expect(data.refresh_token_enc).toBeTruthy();
   });
 
+  it("HTTP 200 + 봉투 code 401 이어도 죽은 토큰으로 보고 행을 지운다", async () => {
+    await saveTokens(userId, { accessToken: "AT1", refreshToken: "RT1", expiresIn: 86400 });
+    await getDb().from("user_tokens")
+      .update({ access_token_expires_at: new Date(Date.now() - 1000).toISOString() })
+      .eq("user_id", userId);
+
+    // 치지직이 HTTP는 200으로 주고 봉투 안에만 401을 담는 경우.
+    // err.status는 200이므로 status만 검사하면 이 케이스를 놓친다.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({ code: 401, message: "INVALID_TOKEN" }),
+    }));
+
+    expect(await getValidAccessToken(userId)).toBeNull();
+    const { data } = await getDb().from("user_tokens").select().eq("user_id", userId).maybeSingle();
+    expect(data).toBeNull();
+  });
+
   it("deleteTokens는 행을 지운다", async () => {
     await saveTokens(userId, { accessToken: "AT", refreshToken: "RT", expiresIn: 86400 });
     await deleteTokens(userId);
@@ -1695,7 +1713,9 @@ export async function getValidAccessToken(userId) {
     await saveTokens(userId, refreshed);
     return refreshed.accessToken;
   } catch (err) {
-    if (err?.status === 401) {
+    // 치지직은 실패를 HTTP 상태로도, 공통 봉투의 code로도 전달할 수 있다.
+    // status만 보면 "HTTP 200 + 봉투 code 401" 응답을 놓쳐 죽은 토큰이 영원히 남는다.
+    if (err?.status === 401 || err?.code === 401) {
       // 리프레시 토큰이 이미 죽었다. 재로그인으로만 복구된다.
       await deleteTokens(userId);
       return null;
