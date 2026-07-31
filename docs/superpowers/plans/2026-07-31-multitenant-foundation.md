@@ -1826,6 +1826,22 @@ git commit -m "feat: 암호화 토큰 저장소와 동시 갱신 방지 추가"
 
 쿠키에는 세션 ID만 담는다. 치지직 토큰은 `user_tokens` 로 갔다.
 
+**⚠️ 이 Task부터 Task 11까지 `pnpm build` 가 깨진다. 정상이다.**
+`lib/session.js` 의 기존 export(`getSession`, `setSession`, `clearSession`)가 사라지는데,
+아래 4개 라우트가 아직 그것들을 import하기 때문이다.
+
+```
+app/api/auth/login/route.js     setSession
+app/api/auth/callback/route.js  setSession
+app/api/auth/logout/route.js    clearSession
+app/api/me/route.js             getSession
+```
+
+이 라우트들은 **Task 11에서 한꺼번에 재배선한다.** Task 9·10에서는 라우트를 건드리지 말고,
+`pnpm build` 도 검증 항목에서 제외한다(`pnpm test` 와 `pnpm test:db` 만 본다). 하위 호환
+shim을 남기지 않는 이유는 Task 11에서 곧바로 지울 코드이기 때문이다. 기능 브랜치 안에서만
+깨지므로 감수한다. **Task 11 완료 시점에는 반드시 빌드가 통과해야 한다.**
+
 - [ ] **Step 1: 쿠키 서명 테스트 작성**
 
 `tests/session-cookie.test.js`:
