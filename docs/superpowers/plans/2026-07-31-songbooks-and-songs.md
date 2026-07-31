@@ -2917,6 +2917,44 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
       headers: { cookie: `${SESSION_COOKIE_NAME}=forged.value` },
 ```
 
+- [ ] **Step 3c: `lib/storage.js` 가 `failed()` 관례를 따르게 한다**
+
+`lib/db/*` 전 모듈이 `failed(error, what)` 헬퍼로 오류를 던지는데 `lib/storage.js` 만
+같은 메시지 포맷을 인라인으로 중복 작성한다. 출력은 같지만 관례에서 벗어나 드리프트의
+시작점이 된다.
+
+import를 추가하고:
+
+```js
+import { failed } from "@/lib/db/errors";
+```
+
+`uploadJacket` 의 업로드 오류 처리를 바꾼다:
+
+```js
+  if (error) failed(error, "자켓 업로드");
+```
+
+- [ ] **Step 3d: Storage 테스트의 정리 안전망을 살린다**
+
+`tests/db/storage.test.js` 의 `uploaded` 배열이 push만 되고 실제 정리에 쓰이지 않는다.
+각 테스트가 업로드 직후 수동으로 `deleteJacket` 을 부르지만, **업로드와 삭제 사이의
+`expect` 가 실패하면 그 파일이 버킷에 고아로 남는다.**
+
+`beforeEach` 를 `afterEach` 로 바꿔 실패해도 정리되게 한다:
+
+```js
+  afterEach(async () => {
+    for (const path of uploaded) await deleteJacket(path);
+    uploaded.length = 0;
+  });
+```
+
+`afterEach` 를 vitest import에 추가하고, 업로드하는 각 테스트가 결과 경로를
+`uploaded.push(result.path)` 로 등록하게 한다(이미 첫 테스트는 그렇게 돼 있다).
+테스트 본문의 수동 `deleteJacket` 호출은 제거해도 되고 남겨도 된다 —
+`deleteJacket` 은 없는 파일에 던지지 않는다.
+
 - [ ] **Step 4: 검증**
 
 Run: `pnpm test`
