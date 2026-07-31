@@ -154,7 +154,6 @@ export default function SongbookPage() {
               <span className="user-chip">
                 <span className="avatar" aria-hidden="true">♪</span>
                 {user.channelName}
-                {user.demo && <span className="demo-badge">DEMO</span>}
               </span>
               <button className="btn btn-ghost" onClick={logout}>
                 로그아웃
