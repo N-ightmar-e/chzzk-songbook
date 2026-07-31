@@ -1067,7 +1067,11 @@ describeE2e("노래책 생성", () => {
     cookie = await cookieForUser(user);
   });
 
-  function create(body, withCookie = cookie) {
+  // 기본 매개변수(`withCookie = cookie`)를 쓰면 안 된다. JS는 인자를 생략했을 때뿐 아니라
+  // 명시적으로 undefined 를 넘겨도 기본값을 적용하므로, "비로그인" 의도로 undefined 를
+  // 넘긴 호출이 로그인된 쿠키를 붙여 보내게 된다. 보안 테스트가 조용히 무의미해지는 자리다.
+  function create(body, ...cookieArgs) {
+    const withCookie = cookieArgs.length > 0 ? cookieArgs[0] : cookie;
     return fetch(`${server.baseUrl}/api/songbooks`, {
       method: "POST",
       headers: {
