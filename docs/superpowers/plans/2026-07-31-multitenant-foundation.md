@@ -2083,8 +2083,17 @@ export async function resolveSession(sessionId) {
   // 만료가 임박하면 슬라이딩 연장한다. 매 요청마다 쓰지 않기 위해 임계값을 둔다.
   let expiresAt = data.expires_at;
   if (expiresAtMs - Date.now() < RENEW_THRESHOLD_MS) {
-    expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
-    await getDb().from("sessions").update({ expires_at: expiresAt }).eq("id", sessionId);
+    const renewed = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+    const { error: renewError } = await getDb()
+      .from("sessions").update({ expires_at: renewed }).eq("id", sessionId);
+    // 연장은 부가 작업이다. 실패해도 세션 자체는 여전히 유효하므로 throw하지 않는다
+    // (연장 실패로 조회를 실패시키면 멀쩡한 세션이 로그아웃처럼 보인다).
+    // 다만 DB에 반영되지 않은 값을 반영된 척 돌려주면 안 되므로 기존 값을 유지한다.
+    if (renewError) {
+      console.error("세션 연장 실패:", renewError.message);
+    } else {
+      expiresAt = renewed;
+    }
   }
 
   return { session: { id: data.id, expiresAt }, user };
