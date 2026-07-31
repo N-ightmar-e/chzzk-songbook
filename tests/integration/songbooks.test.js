@@ -123,6 +123,17 @@ describeE2e("노래책 API 인가", () => {
     expect(found.intro).toBe("비공개 소개");
   });
 
+  it("/api/me 가 설정 화면이 편집하는 필드를 전부 준다", async () => {
+    // PATCH /api/songbooks/[id] 가 받는 설정 필드와 /api/me 가 주는 필드가
+    // 어긋나면, 폼이 기본값을 서버로 되돌려 보내 사용자가 끈 설정이 다시 켜진다.
+    // 실제로 두 번 발생했다(intro·isPublic, 그리고 chzzkSyncEnabled).
+    const res = await fetch(`${server.baseUrl}/api/me`, { headers: { cookie: ownerCookie } });
+    const found = (await res.json()).songbooks.find((b) => b.id === book.id);
+    for (const key of ["title", "slug", "intro", "isPublic", "chzzkSyncEnabled"]) {
+      expect(found).toHaveProperty(key);
+    }
+  });
+
   it("cross-origin 쓰기는 403", async () => {
     const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}`, {
       method: "PATCH",

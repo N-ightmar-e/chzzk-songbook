@@ -10,7 +10,9 @@ export default function SongbookSettingsPage() {
   const router = useRouter();
   const [book, setBook] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ title: "", intro: "", isPublic: true, slug: "" });
+  const [form, setForm] = useState({
+    title: "", intro: "", isPublic: true, slug: "", chzzkSyncEnabled: true,
+  });
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -28,6 +30,7 @@ export default function SongbookSettingsPage() {
             slug: found.slug,
             intro: found.intro ?? "",
             isPublic: found.isPublic,
+            chzzkSyncEnabled: found.chzzkSyncEnabled,
           }));
         }
         setLoading(false);
@@ -116,7 +119,7 @@ export default function SongbookSettingsPage() {
           <label className="manage-check">
             <input
               type="checkbox"
-              checked={form.chzzkSyncEnabled ?? true}
+              checked={form.chzzkSyncEnabled}
               onChange={(e) => setForm({ ...form, chzzkSyncEnabled: e.target.checked })}
             />
             치지직 채널 관리자를 매니저로 자동 등록
