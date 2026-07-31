@@ -110,6 +110,19 @@ describeE2e("노래책 API 인가", () => {
     expect((await patch(ownerCookie, {})).status).toBe(400);
   });
 
+  it("/api/me 가 intro 와 isPublic 을 준다 — 설정 폼이 실제 상태로 초기화되어야 한다", async () => {
+    await fetch(`${server.baseUrl}/api/songbooks/${book.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ isPublic: false, intro: "비공개 소개" }),
+    });
+
+    const res = await fetch(`${server.baseUrl}/api/me`, { headers: { cookie: ownerCookie } });
+    const found = (await res.json()).songbooks.find((b) => b.id === book.id);
+    expect(found.isPublic).toBe(false);
+    expect(found.intro).toBe("비공개 소개");
+  });
+
   it("cross-origin 쓰기는 403", async () => {
     const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}`, {
       method: "PATCH",

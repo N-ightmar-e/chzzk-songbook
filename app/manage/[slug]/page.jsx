@@ -21,7 +21,15 @@ export default function SongbookSettingsPage() {
       .then((d) => {
         const found = (d.songbooks ?? []).find((b) => b.slug === slug);
         setBook(found ?? null);
-        if (found) setForm((f) => ({ ...f, title: found.title, slug: found.slug }));
+        if (found) {
+          setForm((f) => ({
+            ...f,
+            title: found.title,
+            slug: found.slug,
+            intro: found.intro ?? "",
+            isPublic: found.isPublic,
+          }));
+        }
         setLoading(false);
       });
   }, [slug]);

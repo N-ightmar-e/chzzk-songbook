@@ -13,6 +13,7 @@ export async function GET() {
 
     const songbooks = (await listSongbooksForUser(user.id)).map((b) => ({
       id: b.id, slug: b.slug, title: b.title, role: b.role,
+      intro: b.intro, isPublic: b.isPublic,
     }));
 
     return NextResponse.json({
