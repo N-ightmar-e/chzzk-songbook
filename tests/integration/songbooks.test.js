@@ -4,7 +4,7 @@ import { cookieForUser } from "../helpers/session.js";
 import { truncateAll } from "../helpers/db.js";
 import { getDb } from "@/lib/db/client";
 import { upsertUserFromLogin } from "@/lib/db/users";
-import { createSongbook } from "@/lib/db/songbooks";
+import { createSongbook, findSongbookById } from "@/lib/db/songbooks";
 
 describeE2e("노래책 API 인가", () => {
   let server, owner, manager, stranger, operator, book;
@@ -76,6 +76,38 @@ describeE2e("노래책 API 인가", () => {
       },
     );
     expect(res.status).toBe(404);
+  });
+
+  it("주소를 바꾼다", async () => {
+    const res = await patch(ownerCookie, { slug: "MovedBook" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).songbook.slug).toBe("movedbook"); // 소문자 정규화
+  });
+
+  it("형식이 틀린 주소로 바꾸면 400", async () => {
+    expect((await patch(ownerCookie, { slug: "새벽감자" })).status).toBe(400);
+  });
+
+  it("남이 쓰는 주소로 바꾸면 409", async () => {
+    const other = await upsertUserFromLogin({ chzzkChannelId: "x", chzzkChannelName: "X" });
+    await createSongbook({ ownerId: other.id, slug: "taken", title: "남의것" });
+    expect((await patch(ownerCookie, { slug: "taken" })).status).toBe(409);
+  });
+
+  it("검증에 실패하면 다른 필드도 바뀌지 않는다", async () => {
+    // 검증 사이에 쓰기가 끼면 400을 받은 클라이언트가 "실패했다"고 믿는데
+    // 실제로는 title 만 바뀐 상태가 된다. 그걸 막는 테스트다.
+    const before = await findSongbookById(book.id);
+    const res = await patch(ownerCookie, { title: "바뀌면 안 됨", slug: "새벽감자" });
+    expect(res.status).toBe(400);
+
+    const after = await findSongbookById(book.id);
+    expect(after.title).toBe(before.title);
+    expect(after.slug).toBe(before.slug);
+  });
+
+  it("바꿀 내용이 없으면 400", async () => {
+    expect((await patch(ownerCookie, {})).status).toBe(400);
   });
 
   it("cross-origin 쓰기는 403", async () => {
