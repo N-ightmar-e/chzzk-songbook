@@ -773,6 +773,8 @@ Step 6에서 이 테스트가 실패하면 **코드를 고치기 전에 두 파�
 //
 // describe 블록마다 띄우면 같은 포트에 여러 개가 겹치고, 한 블록의 afterAll 이
 // 다른 블록의 서버를 죽인다. 파일별로는 통과하는데 함께 돌리면 깨지는 형태로 나타난다.
+import fs from "node:fs";
+import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
 const PORT = 3100; // 개발 서버(3001)와 겹치지 않게
@@ -803,7 +805,35 @@ async function waitForReady() {
   throw new Error(`개발 서버가 ${READY_TIMEOUT_MS}ms 안에 뜨지 않았습니다.`);
 }
 
+// ⚠️ globalSetup 은 vitest **메인 프로세스**에서 돈다. `.env.test` 를 읽는
+// tests/helpers/setup.js 는 setupFiles 라서 **워커 프로세스**에서만 실행된다.
+// 따라서 여기서는 process.env 에 SUPABASE_URL 이 없어, 파싱을 다시 해야 한다.
+// 이걸 빠뜨리면 아래 가드가 항상 조기 종료해 서버가 아예 안 뜨고,
+// 통합 테스트가 전부 "주소 없음"으로 깨진다.
+function loadEnvTest() {
+  const file = path.join(process.cwd(), ".env.test");
+  if (!fs.existsSync(file)) return;
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (value.length >= 2) {
+      const first = value[0];
+      const last = value[value.length - 1];
+      if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+        value = value.slice(1, -1);
+      }
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+
 export async function setup() {
+  loadEnvTest();
+
   // .env.test 가 없으면 통합 테스트가 전부 skip되므로 서버도 띄우지 않는다.
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) return () => {};
 
@@ -3022,6 +3052,25 @@ import { failed } from "@/lib/db/errors";
 `uploaded.push(result.path)` 로 등록하게 한다(이미 첫 테스트는 그렇게 돼 있다).
 테스트 본문의 수동 `deleteJacket` 호출은 제거해도 되고 남겨도 된다 —
 `deleteJacket` 은 없는 파일에 던지지 않는다.
+
+- [ ] **Step 3e: `pnpm test:db` 가 불필요하게 서버를 띄우지 않게 한다**
+
+`globalSetup` 이 `vitest.config.js` 를 공유하는 **모든** 실행에 걸려서, `pnpm test:db` 도
+매번 개발 서버를 띄웠다 죽인다(+6~7초). 정확성엔 영향이 없지만 낭비다.
+
+`tests/helpers/global-server.js` 의 `setup()` 시작 부분에 가드를 추가한다:
+
+```js
+  // 통합 테스트가 이번 실행에 포함될 때만 서버를 띄운다.
+  // globalSetup 은 test:db 실행에도 걸리므로 이 가드가 없으면 매번 헛돈다.
+  const runningIntegration = process.argv.some((arg) => arg.includes("tests/integration"));
+  if (!runningIntegration) return () => {};
+```
+
+`loadEnvTest()` 호출보다 **먼저** 넣는다. `pnpm test:e2e` 는 `vitest run tests/integration`
+이므로 `argv` 에 그 경로가 들어 있고, `pnpm test:db` 는 `vitest run tests/db` 라 안 걸린다.
+
+수정 후 `pnpm test:db` 가 여전히 74개 통과하고 실행 시간이 줄었는지 확인한다.
 
 - [ ] **Step 4: 검증**
 
