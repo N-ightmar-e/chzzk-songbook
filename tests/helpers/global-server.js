@@ -27,7 +27,6 @@ function loadEnvTest() {
     if (!(key in process.env)) process.env[key] = value;
   }
 }
-loadEnvTest();
 
 // Windows에서 shell:true 로 spawn하면 cmd.exe → pnpm.cmd → node 트리가 생긴다.
 // child.kill() 은 최상위 cmd.exe 에만 신호를 보내 next dev 본체가 포트를 계속 문다.
@@ -56,6 +55,13 @@ async function waitForReady() {
 // process.env 로 넘긴 값은 워커 프로세스에 전달되지 않는다(globalSetup은 메인
 // 프로세스에서, 테스트는 별도 워커에서 돈다). vitest의 provide/inject로 넘긴다.
 export async function setup({ provide }) {
+  // 통합 테스트가 이번 실행에 포함될 때만 서버를 띄운다.
+  // globalSetup 은 test:db 실행에도 걸리므로 이 가드가 없으면 매번 헛돈다.
+  const runningIntegration = process.argv.some((arg) => arg.includes("tests/integration"));
+  if (!runningIntegration) return () => {};
+
+  loadEnvTest();
+
   // .env.test 가 없으면 통합 테스트가 전부 skip되므로 서버도 띄우지 않는다.
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) return () => {};
 

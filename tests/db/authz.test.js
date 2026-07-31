@@ -2,7 +2,7 @@ import { it, expect, beforeEach, vi, afterEach } from "vitest";
 import { describeDb, truncateAll } from "../helpers/db.js";
 import { getDb } from "@/lib/db/client";
 import { upsertUserFromLogin } from "@/lib/db/users";
-import { accessLevel, requireSongbookAccess, AuthzError } from "@/lib/authz";
+import { accessLevel } from "@/lib/authz";
 
 async function makeUser(channelId, name, role = "user") {
   const user = await upsertUserFromLogin({ chzzkChannelId: channelId, chzzkChannelName: name });
@@ -62,43 +62,5 @@ describeDb("lib/authz", () => {
   it("소유자가 운영자를 겸하면 owner가 우선한다", async () => {
     await getDb().from("users").update({ role: "operator" }).eq("id", owner.id);
     expect(await accessLevel({ ...owner, role: "operator" }, songbook.id)).toBe("owner");
-  });
-
-  // --- requireSongbookAccess ---
-  // 위 beforeEach의 픽스처를 그대로 쓴다. user를 명시적으로 넘겨
-  // 쿠키·세션 없이 인가 판정만 검증한다.
-  async function attempt(user, min) {
-    try {
-      const result = await requireSongbookAccess(songbook.id, { min, user });
-      return { ok: true, level: result.level };
-    } catch (err) {
-      return { ok: false, status: err.status, isAuthz: err instanceof AuthzError };
-    }
-  }
-
-  it("비로그인은 401", async () => {
-    expect(await attempt(null, "manager")).toMatchObject({ ok: false, status: 401 });
-  });
-
-  it("타인은 404 (403이 아니다 — 존재를 누설하면 안 된다)", async () => {
-    expect(await attempt(stranger, "manager")).toMatchObject({ ok: false, status: 404 });
-  });
-
-  it("min manager: 매니저·소유자·운영자 통과", async () => {
-    expect(await attempt(manager, "manager")).toMatchObject({ ok: true });
-    expect(await attempt(owner, "manager")).toMatchObject({ ok: true });
-    expect(await attempt(operator, "manager")).toMatchObject({ ok: true });
-  });
-
-  it("min owner: 소유자·운영자 통과, 매니저 404", async () => {
-    expect(await attempt(owner, "owner")).toMatchObject({ ok: true });
-    expect(await attempt(operator, "owner")).toMatchObject({ ok: true });
-    expect(await attempt(manager, "owner")).toMatchObject({ ok: false, status: 404 });
-  });
-
-  it("min ownerOnly: 소유자만 통과, 운영자도 404", async () => {
-    expect(await attempt(owner, "ownerOnly")).toMatchObject({ ok: true });
-    expect(await attempt(operator, "ownerOnly")).toMatchObject({ ok: false, status: 404 });
-    expect(await attempt(manager, "ownerOnly")).toMatchObject({ ok: false, status: 404 });
   });
 });

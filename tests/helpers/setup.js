@@ -11,7 +11,16 @@ if (fs.existsSync(file)) {
     const eq = trimmed.indexOf("=");
     if (eq === -1) continue;
     const key = trimmed.slice(0, eq).trim();
-    const value = trimmed.slice(eq + 1).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    // KEY="값" / KEY='값' 형태를 벗긴다. 벗기지 않으면 따옴표가 값에 섞여
+    // 인증이 실패하는데, 증상이 "키가 틀렸다"로 나와 원인 추적이 어렵다.
+    if (value.length >= 2) {
+      const first = value[0];
+      const last = value[value.length - 1];
+      if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+        value = value.slice(1, -1);
+      }
+    }
     if (!(key in process.env)) process.env[key] = value;
   }
 }

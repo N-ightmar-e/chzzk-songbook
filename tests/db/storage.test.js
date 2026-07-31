@@ -1,4 +1,4 @@
-import { it, expect, beforeEach } from "vitest";
+import { it, expect, afterEach } from "vitest";
 import { describeDb } from "../helpers/db.js";
 import { uploadJacket, deleteJacket, jacketPublicUrl, UploadError } from "@/lib/storage";
 
@@ -21,20 +21,22 @@ describeDb("lib/storage", () => {
   const songbookId = "00000000-0000-0000-0000-0000000000aa";
   const uploaded = [];
 
-  beforeEach(() => { uploaded.length = 0; });
+  afterEach(async () => {
+    for (const path of uploaded) await deleteJacket(path);
+    uploaded.length = 0;
+  });
 
   it("PNG를 올리고 공개 URL을 준다", async () => {
     const result = await uploadJacket(songbookId, fakeFile(PNG_BYTES));
     uploaded.push(result.path);
     expect(result.path).toMatch(new RegExp(`^${songbookId}/[0-9a-f-]+\\.png$`));
     expect(result.publicUrl).toContain("/jackets/");
-    await deleteJacket(result.path);
   });
 
   it("확장자를 서버가 정한다 — 클라이언트 파일명을 쓰지 않는다", async () => {
     const result = await uploadJacket(songbookId, fakeFile(PNG_BYTES));
+    uploaded.push(result.path);
     expect(result.path.endsWith(".png")).toBe(true);
-    await deleteJacket(result.path);
   });
 
   it("이미지가 아닌 바이트를 거부한다", async () => {
