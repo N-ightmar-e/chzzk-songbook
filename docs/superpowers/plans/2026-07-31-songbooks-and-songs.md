@@ -3156,6 +3156,26 @@ import { failed } from "@/lib/db/errors";
 **이 페이지의 본 재작성은 계획 3 Task 7이 한다.** 여기서는 죽은 요청 제거와
 최소 안내까지만 한다.
 
+- [ ] **Step 3h: 곡 등록 버튼이 `songbookId` 준비 전에 눌리지 않게 한다**
+
+`app/manage/[slug]/songs/new/page.jsx` 의 등록 버튼이 `disabled={saving}` 만 본다.
+페이지 로드 직후(아직 `/api/me` 응답 전) 누르면 `/api/songbooks/null/songs` 로 나가고,
+서버는 404를 주지만 화면은 **"입력을 다시 확인해 주세요"** 라는 **틀린 안내**를 띄운다.
+
+버튼 조건에 `songbookId` 를 추가한다:
+
+```jsx
+        disabled={saving || !songbookId}
+```
+
+`songbookId` 해석에 실패한 경우(권한 없는 slug·오타)도 이걸로 함께 막힌다.
+
+- [ ] **Step 3i: 관리 레이아웃의 탭 제목 정정**
+
+`app/manage/layout.jsx` 의 `metadata.title` 이 아직 `"곡 등록 · 노래책"` 이다.
+이 레이아웃이 이제 `/manage`, `/manage/[slug]`, `/manage/[slug]/songs` 까지 감싸므로
+모든 관리 화면의 브라우저 탭에 "곡 등록"이 뜬다. `"노래책 관리"` 로 바꾼다.
+
 - [ ] **Step 4: 검증**
 
 Run: `pnpm test`
