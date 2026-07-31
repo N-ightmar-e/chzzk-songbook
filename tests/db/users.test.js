@@ -43,7 +43,7 @@ describeDb("lib/db/users", () => {
     const loggedIn = await upsertUserFromLogin({ chzzkChannelId: "ch4", chzzkChannelName: "주인" });
     const [again] = await ensurePlaceholderUsers([{ channelId: "ch4", channelName: "주인" }]);
     expect(again.id).toBe(loggedIn.id);
-    expect(again.lastLoginAt).toBeTruthy();
+    expect(again.lastLoginAt).toBe(loggedIn.lastLoginAt);
   });
 
   it("ensurePlaceholderUsers는 빈 배열이면 빈 배열을 준다", async () => {

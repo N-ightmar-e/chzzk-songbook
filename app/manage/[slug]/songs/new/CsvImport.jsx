@@ -6,7 +6,7 @@ import { formatKey, formatPrice } from "@/data/genres";
 
 const DELIMITER_LABEL = { ",": "쉼표", "\t": "탭", ";": "세미콜론" };
 
-export default function CsvImport({ onImported }) {
+export default function CsvImport({ songbookId, onImported }) {
   const [source, setSource] = useState(null);
   const [result, setResult] = useState(null);
   const [useThumbnail, setUseThumbnail] = useState(true);
@@ -20,7 +20,7 @@ export default function CsvImport({ onImported }) {
     setStatus(null);
     const bytes = new Uint8Array(await file.arrayBuffer());
     const { text, encoding } = decodeBytes(bytes);
-    const existing = await fetch("/api/songs")
+    const existing = await fetch(`/api/songbooks/${songbookId}/songs`)
       .then((r) => r.json())
       .then((d) => d.songs)
       .catch(() => []);
@@ -69,10 +69,17 @@ export default function CsvImport({ onImported }) {
     setImporting(true);
     setStatus(null);
 
-    const res = await fetch("/api/songs/bulk", {
+    const res = await fetch(`/api/songbooks/${songbookId}/songs/bulk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ songs: selected.map((row) => row.song) }),
+      body: JSON.stringify({
+        // CSV의 자켓은 유튜브 썸네일 URL이라 Storage 경로가 아니다.
+        // jacketPath에 넣으면 jacketPublicUrl이 잘못된 주소를 만드므로 비워서 보낸다.
+        songs: selected.map((row) => {
+          const { jacket, ...song } = row.song;
+          return song;
+        }),
+      }),
     });
     const data = await res.json();
     setImporting(false);

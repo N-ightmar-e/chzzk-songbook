@@ -67,11 +67,6 @@ export default function SongbookPage() {
       })
       .catch(() => {});
 
-    fetch("/api/songs")
-      .then((r) => r.json())
-      .then((d) => setSongs(d.songs))
-      .catch(() => {});
-
     const url = new URL(location.href);
     const fromUrl = url.searchParams.get("view");
     const saved = fromUrl || localStorage.getItem("songbook:view");
@@ -164,8 +159,8 @@ export default function SongbookPage() {
               치지직으로 로그인
             </a>
           )}
-          <a className="btn btn-ghost" href="/admin/songs/new">
-            곡 등록
+          <a className="btn btn-ghost" href="/manage">
+            노래책 관리
           </a>
         </div>
       </header>
@@ -226,6 +221,13 @@ export default function SongbookPage() {
           ? `${filtered.length}곡이 검색됐어요`
           : `총 ${filtered.length}곡 · 신청하면 채팅 명령어가 복사돼요`}
       </p>
+
+      {songs.length === 0 && (
+        <p className="intro">
+          노래책은 <a href="/manage">노래책 관리</a>에서 만들고, 시청자에게는
+          <code> /@내주소 </code>로 공유합니다.
+        </p>
+      )}
 
       {visible.length === 0 ? (
         <div className="empty">

@@ -12,7 +12,7 @@
 **인계 사항:** `docs/superpowers/specs/2026-07-31-foundation-handoff.md`
 **선행 완료:** `docs/superpowers/plans/2026-07-31-multitenant-foundation.md` (계획 1, main에 병합됨)
 
-**이 계획의 범위:** 스펙 구현순서 4~6단계 + 인계 문서의 계획 2 항목 8개.
+**이 계획의 범위:** 스펙 구현순서 4~6단계 + 인계 문서의 계획 2 항목 8개 + 실행 중 결정된 Task 10(유튜브 썸네일 자켓).
 매니저 동기화·초대·`/@handle` 시청자 페이지·기존 자산 삭제는 계획 3이다.
 
 ## Global Constraints
@@ -398,6 +398,46 @@ describeDb("lib/db/songbooks", () => {
     ).rejects.toThrow();
   });
 
+  it("남의 이력에 남은 옛 주소로는 바꿀 수 없다", async () => {
+    // 피해자가 개명한 직후 공격자가 옛 주소를 가로채는 경로다.
+    // songbooks.slug 의 unique 제약은 "현재" 충돌만 막으므로 여기서 걸러야 한다.
+    const victim = await createSongbook({ ownerId: owner.id, slug: "old", title: "피해자" });
+    await changeSlug(victim.id, "new");
+
+    const attacker = await createSongbook({ ownerId: other.id, slug: "attacker", title: "공격자" });
+    await expect(changeSlug(attacker.id, "old")).rejects.toThrow();
+
+    // 옛 주소는 여전히 피해자의 것을 가리켜야 한다
+    expect((await findSongbookByHistoricalSlug("old")).currentSlug).toBe("new");
+  });
+
+  it("남이 현재 쓰는 주소로는 바꿀 수 없다", async () => {
+    const mine = await createSongbook({ ownerId: owner.id, slug: "mine", title: "A" });
+    await createSongbook({ ownerId: other.id, slug: "theirs", title: "B" });
+    await expect(changeSlug(mine.id, "theirs")).rejects.toThrow();
+  });
+
+  it("자기 옛 주소로는 되돌릴 수 있고 이력에서 사라진다", async () => {
+    // 남의 주소를 가로채는 게 아니므로 막을 이유가 없다.
+    // 되돌린 뒤 이력에 남겨두면 isSlugTaken 이 영원히 참이 되어 스스로도 못 쓰게 된다.
+    const book = await createSongbook({ ownerId: owner.id, slug: "first", title: "A" });
+    await changeSlug(book.id, "second");
+    const back = await changeSlug(book.id, "first");
+    expect(back.slug).toBe("first");
+    expect(await findSongbookByHistoricalSlug("first")).toBeNull();
+    // 직전 주소는 이력에 남는다
+    expect((await findSongbookByHistoricalSlug("second")).currentSlug).toBe("first");
+  });
+
+  it("주소를 바꾸는 동안 옛 주소가 비는 순간이 없다", async () => {
+    // 이력 insert 가 update 보다 먼저여야 한다. 순서가 반대면 그 사이에
+    // 옛 주소가 두 테이블 어디에도 없어 제3자가 가져갈 수 있다.
+    const book = await createSongbook({ ownerId: owner.id, slug: "window", title: "A" });
+    await changeSlug(book.id, "moved");
+    // 변경 후 옛 주소는 반드시 점유 상태여야 한다
+    expect(await isSlugTaken("window")).toBe(true);
+  });
+
   it("같은 노래책이 slug를 두 번 바꿔도 이력이 쌓인다", async () => {
     const book = await createSongbook({ ownerId: owner.id, slug: "a1", title: "A" });
     await changeSlug(book.id, "b1");
@@ -482,9 +522,19 @@ function toSongbook(row) {
 }
 
 export async function createSongbook({ ownerId, slug, title, intro = null }) {
+  const value = normalizeSlug(slug);
+  // songbooks.slug의 DB unique 제약은 "현재" slug 충돌만 막는다.
+  // 이력(songbook_slug_history)에 있는 옛 slug는 이 제약을 통과하므로 여기서 별도 검사한다 —
+  // 빠뜨리면 스트리머가 주소를 바꾼 직후 제3자가 옛 주소를 가로채 사칭할 수 있다.
+  //
+  // check-then-insert 라 원자적이지 않지만 사칭 경로는 열리지 않는다:
+  // 새 slug 경쟁은 DB unique 제약이 최종 방어선이고, 이미 점유·이력에 있는 slug는
+  // 경쟁하는 양쪽 모두 isSlugTaken 이 참을 반환해 둘 다 거부된다.
+  if (await isSlugTaken(value)) failed({ message: "이미 사용 중인 주소" }, "노래책 생성");
+
   const { data, error } = await getDb()
     .from("songbooks")
-    .insert({ owner_id: ownerId, slug: normalizeSlug(slug), title, intro })
+    .insert({ owner_id: ownerId, slug: value, title, intro })
     .select()
     .single();
   if (error) failed(error, "노래책 생성");
@@ -534,6 +584,20 @@ export async function isSlugTaken(slug) {
   return Boolean(past);
 }
 
+// 이 노래책이 그 slug 를 쓸 수 있는가. 자기 현재 slug 와 자기 이력은 허용한다.
+// changeSlug 와 라우트가 같은 판정을 써야 해서 여기로 뽑았다 — 복제하면 드리프트한다.
+export async function isSlugAvailableFor(songbookId, slug) {
+  const value = normalizeSlug(slug);
+
+  const holder = await findSongbookBySlug(value);
+  if (holder && holder.id !== songbookId) return false;
+
+  const history = await findSongbookByHistoricalSlug(value);
+  if (history && history.songbookId !== songbookId) return false;
+
+  return true;
+}
+
 export async function updateSongbook(id, { title, intro, isPublic, chzzkSyncEnabled }) {
   const patch = { updated_at: new Date().toISOString() };
   if (title !== undefined) patch.title = title;
@@ -556,16 +620,41 @@ export async function changeSlug(id, newSlug) {
   if (!current) failed({ message: "노래책을 찾을 수 없음" }, "주소 변경");
   if (current.slug === value) return current;
 
+  // createSongbook 과 같은 이유로 여기서도 검사한다. songbooks.slug 의 unique 제약은
+  // "현재" slug 충돌만 막으므로, 남의 이력에만 남은 옛 주소는 아무 제약에도 안 걸린다.
+  // 빠뜨리면 남이 주소를 바꾼 직후 그 주소를 가로채 사칭할 수 있다.
+  if (!(await isSlugAvailableFor(id, value))) {
+    failed({ message: "이미 사용 중인 주소" }, "주소 변경");
+  }
+  const history = await findSongbookByHistoricalSlug(value);
+
+  // 이력을 먼저 남기고 나서 현재 slug 를 바꾼다. 순서가 반대면 update 커밋 직후
+  // insert 커밋 직전에 옛 주소가 songbooks 에도 이력에도 없는 창이 생기고,
+  // 그 찰나에 들어온 createSongbook 이 isSlugTaken 을 통과해 옛 주소를 가져간다.
+  // 이 순서면 그 창 동안 옛 주소가 이미 이력에 있어 항상 점유된 것으로 보인다.
+  // update 가 실패해도 "이력에도 있고 현재도 그대로"라 노래책은 정상 동작하며,
+  // 재시도 시 upsert 가 중복을 무시하므로 자가 치유된다.
+  const { error: historyError } = await db
+    .from("songbook_slug_history")
+    .upsert(
+      { slug: current.slug, songbook_id: id },
+      { onConflict: "slug", ignoreDuplicates: true },
+    );
+  if (historyError) failed(historyError, "옛 주소 보존");
+
   const { data, error } = await db
     .from("songbooks")
     .update({ slug: value, updated_at: new Date().toISOString() })
     .eq("id", id).select().single();
   if (error) failed(error, "주소 변경");
 
-  const { error: historyError } = await db
-    .from("songbook_slug_history")
-    .insert({ slug: current.slug, songbook_id: id });
-  if (historyError) failed(historyError, "옛 주소 보존");
+  // 자기 옛 주소로 되돌아온 경우 그 이력 행을 지운다 — 같은 주소가 현재와 이력에
+  // 동시에 있으면 isSlugTaken 이 영원히 참이 되어 스스로도 다시 쓸 수 없게 된다.
+  if (history) {
+    const { error: cleanupError } = await db
+      .from("songbook_slug_history").delete().eq("slug", value);
+    if (cleanupError) failed(cleanupError, "옛 주소 정리");
+  }
 
   return toSongbook(data);
 }
@@ -615,7 +704,7 @@ export async function listSongbooksForUser(userId) {
 - [ ] **Step 4: 테스트 확인**
 
 Run: `pnpm test:db`
-Expected: 50 passed (기존 37 + songbooks 13)
+Expected: 54 passed (기존 37 + songbooks 17)
 
 - [ ] **Step 5: `app/api/auth/callback/route.js` 의 인라인 쿼리 교체**
 
@@ -664,19 +753,43 @@ git commit -m "feat: 노래책 저장소 추가하고 콜백의 직접 쿼리 �
 검증한다. `cookieForUser` 는 진짜 세션을 만들고 진짜 서명을 붙이므로, 서버가 쿠키를 검증하고
 세션을 조회하고 유저를 조인하는 전 경로가 실행된다.
 
-- [ ] **Step 1: `tests/helpers/server.js` 작성**
+**⚠️ 전제 조건: `.env` 와 `.env.test` 의 `SESSION_SECRET` 이 같아야 한다.**
+테스트 프로세스가 `.env.test` 의 키로 쿠키에 서명하고, spawn된 개발 서버는 자기 환경의 키로
+검증한다. 두 값이 다르면 서명이 맞지 않아 서버가 쿠키를 무시하고, 증상이
+"로그인했는데 `/api/me` 가 `user: null` 을 준다"로 나타난다. `TOKEN_ENCRYPTION_KEY` 도
+같은 이유로 일치해야 한다(두 프로세스가 같은 DB의 암호문을 읽는다).
+Step 6에서 이 테스트가 실패하면 **코드를 고치기 전에 두 파일의 키를 먼저 대조할 것.**
+
+**⚠️ 서버는 실행 전체에 하나만 띄운다.** `describeE2e` 블록마다 `beforeAll` 에서 서버를
+띄우면, 블록이 늘어날수록 같은 포트에 여러 개가 겹치고 한 블록의 `afterAll` 이 다른 블록의
+서버를 죽인다. 증상은 "파일 하나씩 돌리면 전부 통과하는데 같이 돌리면 매번 다른 개수가
+실패"다. 그래서 vitest `globalSetup` 으로 한 번만 띄우고, `startServer()` 는 그 주소를
+돌려주기만 한다.
+
+- [ ] **Step 0: `tests/helpers/global-server.js` 작성 (실행당 서버 1개)**
 
 ```js
-// 통합 테스트용 개발 서버. 스위트 전체에서 한 번만 띄운다.
-import { spawn } from "node:child_process";
-import { describe } from "vitest";
+// 통합 테스트용 개발 서버. vitest globalSetup 으로 실행 전체에서 딱 한 번 띄운다.
+//
+// describe 블록마다 띄우면 같은 포트에 여러 개가 겹치고, 한 블록의 afterAll 이
+// 다른 블록의 서버를 죽인다. 파일별로는 통과하는데 함께 돌리면 깨지는 형태로 나타난다.
+import fs from "node:fs";
+import path from "node:path";
+import { spawn, spawnSync } from "node:child_process";
 
 const PORT = 3100; // 개발 서버(3001)와 겹치지 않게
 const BASE_URL = `http://localhost:${PORT}`;
 const READY_TIMEOUT_MS = 120_000;
 
-export const describeE2e =
-  process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY ? describe : describe.skip;
+// Windows에서 shell:true 로 spawn하면 cmd.exe → pnpm.cmd → node 트리가 생긴다.
+// child.kill() 은 최상위 cmd.exe 에만 신호를 보내 next dev 본체가 포트를 계속 문다.
+function killTree(child) {
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" });
+    return;
+  }
+  child.kill();
+}
 
 async function waitForReady() {
   const deadline = Date.now() + READY_TIMEOUT_MS;
@@ -692,7 +805,38 @@ async function waitForReady() {
   throw new Error(`개발 서버가 ${READY_TIMEOUT_MS}ms 안에 뜨지 않았습니다.`);
 }
 
-export async function startServer() {
+// ⚠️ globalSetup 은 vitest **메인 프로세스**에서 돈다. `.env.test` 를 읽는
+// tests/helpers/setup.js 는 setupFiles 라서 **워커 프로세스**에서만 실행된다.
+// 따라서 여기서는 process.env 에 SUPABASE_URL 이 없어, 파싱을 다시 해야 한다.
+// 이걸 빠뜨리면 아래 가드가 항상 조기 종료해 서버가 아예 안 뜨고,
+// 통합 테스트가 전부 "주소 없음"으로 깨진다.
+function loadEnvTest() {
+  const file = path.join(process.cwd(), ".env.test");
+  if (!fs.existsSync(file)) return;
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (value.length >= 2) {
+      const first = value[0];
+      const last = value[value.length - 1];
+      if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+        value = value.slice(1, -1);
+      }
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+
+export async function setup() {
+  loadEnvTest();
+
+  // .env.test 가 없으면 통합 테스트가 전부 skip되므로 서버도 띄우지 않는다.
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) return () => {};
+
   const child = spawn("pnpm", ["exec", "next", "dev", "--port", String(PORT)], {
     stdio: "ignore",
     shell: process.platform === "win32",
@@ -702,18 +846,55 @@ export async function startServer() {
   try {
     await waitForReady();
   } catch (err) {
-    child.kill();
+    killTree(child);
     throw err;
   }
 
+  // 워커 프로세스가 이 값을 상속받는다.
+  process.env.E2E_BASE_URL = BASE_URL;
+
+  return () => killTree(child);
+}
+```
+
+- [ ] **Step 1: `tests/helpers/server.js` 작성**
+
+```js
+// 통합 테스트에서 서버 주소를 얻는 얇은 헬퍼.
+// 실제 기동·종료는 globalSetup(tests/helpers/global-server.js)이 실행당 한 번만 한다.
+import { describe } from "vitest";
+
+export const describeE2e =
+  process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY ? describe : describe.skip;
+
+// 시그니처는 유지한다 — 테스트 파일이 beforeAll/afterAll 에서 그대로 쓴다.
+// 서버를 새로 띄우지 않고, 이미 떠 있는 주소를 돌려주기만 한다.
+export async function startServer() {
+  const baseUrl = process.env.E2E_BASE_URL;
+  if (!baseUrl) {
+    throw new Error(
+      "E2E_BASE_URL 이 없습니다. vitest.config.js 의 globalSetup 설정을 확인하세요.",
+    );
+  }
   return {
-    baseUrl: BASE_URL,
+    baseUrl,
     stop() {
-      child.kill();
+      // 종료는 globalSetup 의 teardown 이 담당한다. 여기서 죽이면
+      // 아직 실행 중인 다른 describe 블록이 서버를 잃는다.
     },
   };
 }
 ```
+
+`vitest.config.js` 의 `test` 블록에 `globalSetup` 을 추가한다:
+
+```js
+    globalSetup: ["tests/helpers/global-server.js"],
+```
+
+**환경변수가 워커로 전달되지 않으면** `process.env` 대신 vitest 의 `provide`/`inject` API를
+쓴다(`setup({ provide })` 에서 `provide("e2eBaseUrl", BASE_URL)`, 테스트에서
+`inject("e2eBaseUrl")`). 그 경우 `startServer` 가 `inject` 를 쓰도록 바꾸고 보고할 것.
 
 - [ ] **Step 2: `tests/helpers/session.js` 작성**
 
@@ -797,7 +978,9 @@ describeE2e("통합 테스트 하네스", () => {
 
   it("위조된 쿠키는 비로그인으로 처리된다", async () => {
     const res = await fetch(`${server.baseUrl}/api/me`, {
-      headers: { cookie: "songbook_session=위조.값" },
+      // 헤더 값은 ByteString(코드포인트 <= 255)이어야 한다. 한글을 넣으면 fetch가
+      // 요청을 보내기도 전에 TypeError를 던져 서버 동작을 검증하지 못한다.
+      headers: { cookie: "songbook_session=forged.value" },
     });
     const body = await res.json();
     expect(body.user).toBeNull();
@@ -868,7 +1051,7 @@ import { cookieForUser } from "../helpers/session.js";
 import { truncateAll } from "../helpers/db.js";
 import { getDb } from "@/lib/db/client";
 import { upsertUserFromLogin } from "@/lib/db/users";
-import { createSongbook } from "@/lib/db/songbooks";
+import { createSongbook, findSongbookById } from "@/lib/db/songbooks";
 
 describeE2e("노래책 API 인가", () => {
   let server, owner, manager, stranger, operator, book;
@@ -942,6 +1125,38 @@ describeE2e("노래책 API 인가", () => {
     expect(res.status).toBe(404);
   });
 
+  it("주소를 바꾼다", async () => {
+    const res = await patch(ownerCookie, { slug: "MovedBook" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).songbook.slug).toBe("movedbook"); // 소문자 정규화
+  });
+
+  it("형식이 틀린 주소로 바꾸면 400", async () => {
+    expect((await patch(ownerCookie, { slug: "새벽감자" })).status).toBe(400);
+  });
+
+  it("남이 쓰는 주소로 바꾸면 409", async () => {
+    const other = await upsertUserFromLogin({ chzzkChannelId: "x", chzzkChannelName: "X" });
+    await createSongbook({ ownerId: other.id, slug: "taken", title: "남의것" });
+    expect((await patch(ownerCookie, { slug: "taken" })).status).toBe(409);
+  });
+
+  it("검증에 실패하면 다른 필드도 바뀌지 않는다", async () => {
+    // 검증 사이에 쓰기가 끼면 400을 받은 클라이언트가 "실패했다"고 믿는데
+    // 실제로는 title 만 바뀐 상태가 된다. 그걸 막는 테스트다.
+    const before = await findSongbookById(book.id);
+    const res = await patch(ownerCookie, { title: "바뀌면 안 됨", slug: "새벽감자" });
+    expect(res.status).toBe(400);
+
+    const after = await findSongbookById(book.id);
+    expect(after.title).toBe(before.title);
+    expect(after.slug).toBe(before.slug);
+  });
+
+  it("바꿀 내용이 없으면 400", async () => {
+    expect((await patch(ownerCookie, {})).status).toBe(400);
+  });
+
   it("cross-origin 쓰기는 403", async () => {
     const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}`, {
       method: "PATCH",
@@ -968,7 +1183,11 @@ describeE2e("노래책 생성", () => {
     cookie = await cookieForUser(user);
   });
 
-  function create(body, withCookie = cookie) {
+  // 기본 매개변수(`withCookie = cookie`)를 쓰면 안 된다. JS는 인자를 생략했을 때뿐 아니라
+  // 명시적으로 undefined 를 넘겨도 기본값을 적용하므로, "비로그인" 의도로 undefined 를
+  // 넘긴 호출이 로그인된 쿠키를 붙여 보내게 된다. 보안 테스트가 조용히 무의미해지는 자리다.
+  function create(body, ...cookieArgs) {
+    const withCookie = cookieArgs.length > 0 ? cookieArgs[0] : cookie;
     return fetch(`${server.baseUrl}/api/songbooks`, {
       method: "POST",
       headers: {
@@ -1087,7 +1306,7 @@ import { NextResponse } from "next/server";
 import { requireSongbookAccess } from "@/lib/authz";
 import { errorResponse, requireSameOrigin } from "@/lib/http";
 import { normalizeSlug, validateSlug } from "@/lib/slug";
-import { updateSongbook, changeSlug, isSlugTaken } from "@/lib/db/songbooks";
+import { updateSongbook, changeSlug, isSlugAvailableFor } from "@/lib/db/songbooks";
 
 export async function PATCH(request, { params }) {
   try {
@@ -1098,6 +1317,9 @@ export async function PATCH(request, { params }) {
     await requireSongbookAccess(id, { min: "owner" });
 
     const input = await request.json();
+
+    // 검증을 전부 끝낸 뒤에 쓴다. 검증 사이에 쓰기가 끼면, 400/409 를 받은 클라이언트는
+    // "요청이 실패했다"고 믿는데 실제로는 일부 필드가 이미 바뀐 상태가 된다.
     const patch = {};
     if (input?.title !== undefined) {
       const title = String(input.title).trim();
@@ -1112,23 +1334,26 @@ export async function PATCH(request, { params }) {
       patch.chzzkSyncEnabled = Boolean(input.chzzkSyncEnabled);
     }
 
-    let songbook = Object.keys(patch).length > 0
-      ? await updateSongbook(id, patch)
-      : null;
-
+    let slug = null;
     if (input?.slug !== undefined) {
-      const slug = normalizeSlug(input.slug);
+      slug = normalizeSlug(input.slug);
       const slugError = validateSlug(slug);
       if (slugError) return NextResponse.json({ error: slugError }, { status: 400 });
-      if (await isSlugTaken(slug)) {
+      // isSlugAvailableFor 는 자기 현재 slug 와 자기 이력을 허용한다.
+      // changeSlug 도 같은 함수를 쓰므로 판정이 갈리지 않는다.
+      if (!(await isSlugAvailableFor(id, slug))) {
         return NextResponse.json({ error: "이미 쓰이는 주소예요." }, { status: 409 });
       }
-      songbook = await changeSlug(id, slug);
     }
 
-    if (!songbook) {
+    if (Object.keys(patch).length === 0 && slug === null) {
       return NextResponse.json({ error: "바꿀 내용이 없어요." }, { status: 400 });
     }
+
+    // 여기부터 쓰기. 위에서 모든 검증이 끝났다.
+    let songbook = Object.keys(patch).length > 0 ? await updateSongbook(id, patch) : null;
+    if (slug !== null) songbook = await changeSlug(id, slug);
+
     return NextResponse.json({ songbook });
   } catch (err) {
     return errorResponse(err);
@@ -1142,7 +1367,7 @@ Run: `pnpm test:e2e`
 Expected: 전부 통과 (smoke 3 + 인가 7 + 생성 7 = 17)
 
 Run: `pnpm test && pnpm test:db && pnpm build`
-Expected: 56 / 50 / 성공
+Expected: 56 / 54 / 성공
 
 - [ ] **Step 7: 커밋**
 
@@ -1297,7 +1522,15 @@ Expected: FAIL — `Cannot find module '@/lib/db/songs'`
 - [ ] **Step 3: `lib/db/songs.js` 작성**
 
 ```js
-// songs 저장소. 모든 조회·쓰기가 songbook_id 스코프 안에서 일어난다.
+// songs 저장소.
+//
+// ⚠️ 이 모듈은 인가를 하지 않는다. 스코프도 함수마다 다르다:
+//   - listSongs / countSongs / createSong / createSongs — songbook_id 로 스코프된다
+//   - findSongById / updateSong / deleteSong — id 만으로 동작하며 **스코프 검사를 하지 않는다**
+//
+// 뒤의 셋은 호출자(라우트)가 곡 → 노래책을 찾아 requireSongbookAccess 로 인가한 뒤에
+// 불러야 한다. 이 서비스는 sb_secret_ 키가 RLS를 전부 우회하므로 라우트의 인가가
+// 유일한 방어선이다. "저장소가 알아서 격리해준다"고 오해하면 그 자리가 곧 데이터 노출이다.
 import { getDb } from "@/lib/db/client";
 import { failed } from "@/lib/db/errors";
 import { isUuid } from "@/lib/uuid";
@@ -1404,7 +1637,7 @@ export async function countSongs(songbookId) {
 - [ ] **Step 4: 테스트 확인**
 
 Run: `pnpm test:db`
-Expected: 63 passed (기존 50 + songs 13)
+Expected: 67 passed (기존 54 + songs 13)
 
 - [ ] **Step 5: 커밋**
 
@@ -1696,7 +1929,7 @@ Run: `pnpm test`
 Expected: 64 passed (기존 56 + image 8)
 
 Run: `pnpm test:db`
-Expected: 70 passed (기존 63 + storage 7)
+Expected: 74 passed (기존 67 + storage 7)
 
 - [ ] **Step 9: 커밋**
 
@@ -1871,35 +2104,60 @@ describeE2e("곡 API 인가", () => {
 
 describeE2e("제거된 무방비 라우트", () => {
   let server;
+
   beforeAll(async () => { server = await startServer(); });
   afterAll(() => { server?.stop(); });
+  beforeEach(async () => { await truncateAll(getDb()); });
 
-  // 인증 없이 열려 있던 라우트들이다. 반드시 사라져야 한다.
-  it("POST /api/songs 는 더 이상 없다", async () => {
+  // 인증 없이 열려 있던 라우트들이다. 지켜야 할 성질은 "인증 없이 곡이 만들어지지
+  // 않는다"이지 "정확히 404가 돌아온다"가 아니다.
+  //
+  // 상태코드를 못 박으면 안 되는 이유: /api/songs/bulk 는 형제 동적 라우트
+  // /api/songs/[id] 에 id="bulk" 로 매치되고, 그 라우트가 PATCH/DELETE 만 export 하므로
+  // Next 가 프레임워크 레벨에서 405 를 준다(우리 코드는 실행되지도 않는다).
+  // 405 를 404 로 만들려면 테스트를 만족시키기 위한 빈 핸들러를 넣어야 하는데,
+  // 그건 순서가 거꾸로다. 대신 아래처럼 실제 성질을 검사한다.
+  async function songCount() {
+    const { count } = await getDb().from("songs").select("id", { count: "exact", head: true });
+    return count ?? 0;
+  }
+
+  it("POST /api/songs 로는 곡이 만들어지지 않는다", async () => {
     const res = await fetch(`${server.baseUrl}/api/songs`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: server.baseUrl },
       body: JSON.stringify(SONG),
     });
-    expect(res.status).toBe(404);
+    expect(res.ok).toBe(false);
+    expect(await songCount()).toBe(0);
   });
 
-  it("POST /api/songs/bulk 는 더 이상 없다", async () => {
+  it("POST /api/songs/bulk 로는 곡이 만들어지지 않는다", async () => {
     const res = await fetch(`${server.baseUrl}/api/songs/bulk`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: server.baseUrl },
       body: JSON.stringify({ songs: [SONG] }),
     });
-    expect(res.status).toBe(404);
+    expect(res.ok).toBe(false);
+    expect(await songCount()).toBe(0);
   });
 
   it("POST /api/upload 는 더 이상 없다", async () => {
+    // 이 경로는 형제 동적 라우트가 없어 그대로 404 다.
     const res = await fetch(`${server.baseUrl}/api/upload`, {
       method: "POST",
       headers: { origin: server.baseUrl },
       body: new FormData(),
     });
     expect(res.status).toBe(404);
+  });
+
+  it("옛 라우트 파일이 저장소에 남아있지 않다", async () => {
+    // 상태코드는 프레임워크 사정에 따라 변할 수 있다. 파일 부재는 변하지 않는다.
+    const fs = await import("node:fs");
+    expect(fs.existsSync("app/api/songs/route.js")).toBe(false);
+    expect(fs.existsSync("app/api/songs/bulk/route.js")).toBe(false);
+    expect(fs.existsSync("app/api/upload/route.js")).toBe(false);
   });
 });
 ```
@@ -2145,10 +2403,10 @@ rmdir app/api/songs/bulk app/api/upload 2>/dev/null || true
 - [ ] **Step 9: 테스트 확인**
 
 Run: `pnpm test:e2e`
-Expected: 전부 통과 (smoke 3 + 노래책 14 + 곡 13 + 제거확인 3 = 33)
+Expected: 전부 통과 (smoke 3 + 노래책 19 + 곡 13 + 제거확인 4 = 39)
 
 Run: `pnpm test && pnpm test:db`
-Expected: 64 / 70
+Expected: 64 / 74
 
 Run: `pnpm build`
 Expected: 성공. **`/api/upload` 가 라우트 목록에서 사라졌는지 확인한다.**
@@ -2665,7 +2923,7 @@ Expected: 성공. 라우트 목록에 `/manage`, `/manage/[slug]`, `/manage/[slu
 `/manage/[slug]/songs/new` 가 있고 `/admin/*` 이 없어야 한다.
 
 Run: `pnpm test && pnpm test:db && pnpm test:e2e`
-Expected: 64 / 70 / 33
+Expected: 64 / 74 / 39
 
 수동 확인 — `pnpm dev --port 3001` 로 띄우고 (상위 세션에 요청):
 1. `/manage` 접속 → 로그인 안 됐으면 로그인 버튼
@@ -2737,16 +2995,197 @@ git commit -m "feat: 관리 화면을 노래책 스코프로 이설"
 이러면 이연 7·8번(매트릭스 4조합 미테스트, `isAuthz` 미단언)이 함께 해소된다 —
 매트릭스의 정본이 실제 HTTP를 타는 통합 테스트로 옮겨갔기 때문이다.
 
+- [ ] **Step 3b: 위조 쿠키 테스트가 쿠키명을 상수에서 가져오게 한다**
+
+`tests/integration/smoke.test.js` 의 위조 쿠키 테스트가 쿠키 이름을 리터럴
+`"songbook_session"` 으로 하드코딩하고 있다. 지금은 값이 맞아 통과하지만,
+`SESSION_COOKIE_NAME` 이 바뀌면 이 테스트는 **"알려진 쿠키명 + 잘못된 서명 거부"가 아니라
+"모르는 쿠키명"을 검증하게 된다.** 서버 응답은 두 경우 다 `user: null` 이라 실패로
+드러나지 않고, 테스트가 조용히 의미를 잃는다.
+
+import에 상수를 추가한다:
+
+```js
+import { SESSION_COOKIE_NAME } from "@/lib/session";
+```
+
+그리고 해당 테스트의 헤더를 바꾼다:
+
+```js
+      headers: { cookie: `${SESSION_COOKIE_NAME}=forged.value` },
+```
+
+- [ ] **Step 3c: `lib/storage.js` 가 `failed()` 관례를 따르게 한다**
+
+`lib/db/*` 전 모듈이 `failed(error, what)` 헬퍼로 오류를 던지는데 `lib/storage.js` 만
+같은 메시지 포맷을 인라인으로 중복 작성한다. 출력은 같지만 관례에서 벗어나 드리프트의
+시작점이 된다.
+
+import를 추가하고:
+
+```js
+import { failed } from "@/lib/db/errors";
+```
+
+`uploadJacket` 의 업로드 오류 처리를 바꾼다:
+
+```js
+  if (error) failed(error, "자켓 업로드");
+```
+
+- [ ] **Step 3d: Storage 테스트의 정리 안전망을 살린다**
+
+`tests/db/storage.test.js` 의 `uploaded` 배열이 push만 되고 실제 정리에 쓰이지 않는다.
+각 테스트가 업로드 직후 수동으로 `deleteJacket` 을 부르지만, **업로드와 삭제 사이의
+`expect` 가 실패하면 그 파일이 버킷에 고아로 남는다.**
+
+`beforeEach` 를 `afterEach` 로 바꿔 실패해도 정리되게 한다:
+
+```js
+  afterEach(async () => {
+    for (const path of uploaded) await deleteJacket(path);
+    uploaded.length = 0;
+  });
+```
+
+`afterEach` 를 vitest import에 추가하고, 업로드하는 각 테스트가 결과 경로를
+`uploaded.push(result.path)` 로 등록하게 한다(이미 첫 테스트는 그렇게 돼 있다).
+테스트 본문의 수동 `deleteJacket` 호출은 제거해도 되고 남겨도 된다 —
+`deleteJacket` 은 없는 파일에 던지지 않는다.
+
+- [ ] **Step 3e: `pnpm test:db` 가 불필요하게 서버를 띄우지 않게 한다**
+
+`globalSetup` 이 `vitest.config.js` 를 공유하는 **모든** 실행에 걸려서, `pnpm test:db` 도
+매번 개발 서버를 띄웠다 죽인다(+6~7초). 정확성엔 영향이 없지만 낭비다.
+
+`tests/helpers/global-server.js` 의 `setup()` 시작 부분에 가드를 추가한다:
+
+```js
+  // 통합 테스트가 이번 실행에 포함될 때만 서버를 띄운다.
+  // globalSetup 은 test:db 실행에도 걸리므로 이 가드가 없으면 매번 헛돈다.
+  const runningIntegration = process.argv.some((arg) => arg.includes("tests/integration"));
+  if (!runningIntegration) return () => {};
+```
+
+`loadEnvTest()` 호출보다 **먼저** 넣는다. `pnpm test:e2e` 는 `vitest run tests/integration`
+이므로 `argv` 에 그 경로가 들어 있고, `pnpm test:db` 는 `vitest run tests/db` 라 안 걸린다.
+
+수정 후 `pnpm test:db` 가 여전히 74개 통과하고 실행 시간이 줄었는지 확인한다.
+
+- [ ] **Step 3f: `jacketPath` 를 임의 값으로 덮어쓰지 못하게 한다**
+
+`PATCH /api/songs/[id]` 가 `input` 을 그대로 `updateSong` 에 넘긴다. `jacketPath` 는
+`toRow` 의 매핑에 있으므로, 매니저가 **업로드 흐름(매직바이트 검증)을 건너뛰고** 임의
+문자열로 덮어쓸 수 있다. 남의 노래책 자켓 경로를 가리키게 만드는 것도 가능하다.
+
+매니저 권한이 필요해 파급력은 제한적이지만, 이 필드는 `uploadJacket` 이 돌려준 경로만
+들어와야 한다. `app/api/songs/[id]/route.js` 의 PATCH 에서 검증을 추가한다.
+
+`import { JACKETS_BUCKET } from "@/lib/storage";` 는 필요 없고, 경로 형식만 확인한다:
+
+```js
+    // jacketPath 는 uploadJacket 이 돌려준 경로여야 한다.
+    // 임의 문자열을 허용하면 매직바이트 검증을 우회해 남의 자켓을 가리킬 수 있다.
+    if (input?.jacketPath !== undefined && input.jacketPath !== null) {
+      const expected = new RegExp(
+        `^${existing.songbookId}/[0-9a-f-]{36}\\.(jpg|png|webp)$`,
+      );
+      if (!expected.test(String(input.jacketPath))) {
+        return NextResponse.json({ error: "자켓 경로가 올바르지 않아요." }, { status: 400 });
+      }
+    }
+```
+
+`existing` 은 `requireSongAccess` 가 돌려준 곡이다. 이 검사를 `validateSongInput` 직후,
+`updateSong` 호출 **앞에** 넣는다.
+
+통합 테스트에 케이스를 추가한다(`tests/integration/songs.test.js` 의 "곡 API 인가" 스위트):
+
+```js
+  it("자켓 경로를 임의 값으로 덮어쓸 수 없다", async () => {
+    const song = await createSong(book.id, SONG);
+    const res = await fetch(`${server.baseUrl}/api/songs/${song.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ jacketPath: "../다른노래책/훔친자켓.png" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("업로드가 돌려준 형식의 자켓 경로는 받는다", async () => {
+    const song = await createSong(book.id, SONG);
+    const valid = `${book.id}/00000000-0000-0000-0000-000000000000.webp`;
+    const res = await fetch(`${server.baseUrl}/api/songs/${song.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ jacketPath: valid }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).song.jacketPath).toBe(valid);
+  });
+```
+
+- [ ] **Step 3g: 랜딩 페이지가 삭제된 라우트를 호출하지 않게 한다**
+
+`app/page.jsx` 가 `fetch("/api/songs")` 를 부르는데 그 라우트는 Task 7에서 삭제됐다.
+`.catch(() => {})` 가 있어 크래시는 안 나지만 **홈 화면을 열 때마다 404가 발생**하고,
+곡 목록은 영원히 비어 있다. 계획 3이 이 페이지를 통째로 재작성하지만 그때까지
+매 방문이 죽은 요청을 날린다.
+
+죽은 fetch 블록을 제거한다:
+
+```js
+    fetch("/api/songs")
+      .then((r) => r.json())
+      .then((d) => setSongs(d.songs))
+      .catch(() => {});
+```
+
+그리고 곡 목록이 비었을 때 사용자가 길을 잃지 않도록, 곡 그리드/리스트가 렌더되는
+자리 위에 안내를 추가한다(기존 마크업을 크게 건드리지 말 것):
+
+```jsx
+      {songs.length === 0 && (
+        <p className="intro">
+          노래책은 <a href="/manage">노래책 관리</a>에서 만들고, 시청자에게는
+          <code> /@내주소 </code>로 공유합니다.
+        </p>
+      )}
+```
+
+**이 페이지의 본 재작성은 계획 3 Task 7이 한다.** 여기서는 죽은 요청 제거와
+최소 안내까지만 한다.
+
+- [ ] **Step 3h: 곡 등록 버튼이 `songbookId` 준비 전에 눌리지 않게 한다**
+
+`app/manage/[slug]/songs/new/page.jsx` 의 등록 버튼이 `disabled={saving}` 만 본다.
+페이지 로드 직후(아직 `/api/me` 응답 전) 누르면 `/api/songbooks/null/songs` 로 나가고,
+서버는 404를 주지만 화면은 **"입력을 다시 확인해 주세요"** 라는 **틀린 안내**를 띄운다.
+
+버튼 조건에 `songbookId` 를 추가한다:
+
+```jsx
+        disabled={saving || !songbookId}
+```
+
+`songbookId` 해석에 실패한 경우(권한 없는 slug·오타)도 이걸로 함께 막힌다.
+
+- [ ] **Step 3i: 관리 레이아웃의 탭 제목 정정**
+
+`app/manage/layout.jsx` 의 `metadata.title` 이 아직 `"곡 등록 · 노래책"` 이다.
+이 레이아웃이 이제 `/manage`, `/manage/[slug]`, `/manage/[slug]/songs` 까지 감싸므로
+모든 관리 화면의 브라우저 탭에 "곡 등록"이 뜬다. `"노래책 관리"` 로 바꾼다.
+
 - [ ] **Step 4: 검증**
 
 Run: `pnpm test`
 Expected: 64 passed (변동 없음)
 
 Run: `pnpm test:db`
-Expected: 65 passed (기존 70 − 삭제한 authz 5)
+Expected: 69 passed (기존 74 − 삭제한 authz 5)
 
 Run: `pnpm test:e2e`
-Expected: 33 passed
+Expected: 41 passed
 
 - [ ] **Step 5: 커밋**
 
@@ -2757,11 +3196,292 @@ git commit -m "test: 이연 항목 정리하고 인가 검증을 통합 테스�
 
 ---
 
+---
+
+### Task 10: 유튜브 썸네일을 자켓으로 저장
+
+**Files:**
+- Modify: `lib/storage.js`
+- Create: `app/api/songbooks/[id]/jacket/youtube/route.js`
+- Modify: `app/manage/[slug]/songs/new/page.jsx`
+- Create: `tests/db/storage-youtube.test.js`
+- Modify: `tests/integration/songs.test.js`
+
+**Interfaces:**
+- Consumes: `detectImageType`, `getDb`, `requireSongbookAccess`, `requireSameOrigin`
+- Produces:
+  - `lib/storage.js`: `uploadJacketFromYoutube(songbookId, videoId): Promise<{path, publicUrl}>`
+  - `POST /api/songbooks/[id]/jacket/youtube` — body `{ videoId }` (`min: 'manager'`)
+
+**왜 필요한가:** Task 8 이설로 "유튜브 썸네일 쓰기"가 미리보기에만 남고 저장되지 않게 됐다.
+`jacket_path` 가 Storage 경로만 담는 계약이라 외부 URL을 넣을 수 없기 때문이다. 서버가
+썸네일을 받아 Storage에 올리면 기능이 되살아나면서 계약도 유지된다.
+
+**SSRF 없음:** 사용자에게서 URL을 받지 않는다. `videoId` 만 받아 **서버가 주소를 조립**한다.
+`videoId` 는 `^[A-Za-z0-9_-]{11}$` 로 검증해 경로 주입을 막는다.
+
+**CSV 일괄 등록은 이 기능을 쓰지 않는다.** 1,000곡 임포트에 썸네일 1,000개를 받아오면
+요청이 수 분씩 걸린다. CSV로 넣은 곡은 개별 수정에서 자켓을 넣는다. 이 결정을 코드 주석과
+`docs/SETUP.md` 에 남기지는 않되, CSV 경로가 자켓을 비우는 현재 동작을 유지한다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`tests/db/storage-youtube.test.js`:
+
+```js
+import { it, expect, afterEach, vi } from "vitest";
+import { describeDb } from "../helpers/db.js";
+import { uploadJacketFromYoutube, deleteJacket, UploadError } from "@/lib/storage";
+
+// 1x1 투명 PNG
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+function imageResponse(bytes) {
+  return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer.slice(
+    bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+}
+
+describeDb("lib/storage — 유튜브 썸네일", () => {
+  const songbookId = "00000000-0000-0000-0000-0000000000bb";
+  const uploaded = [];
+
+  afterEach(async () => {
+    for (const path of uploaded) await deleteJacket(path);
+    uploaded.length = 0;
+    vi.unstubAllGlobals();
+  });
+
+  it("썸네일을 받아 Storage에 올린다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(imageResponse(PNG)));
+    const result = await uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ");
+    uploaded.push(result.path);
+    expect(result.path).toMatch(new RegExp(`^${songbookId}/[0-9a-f-]+\\.png$`));
+    expect(result.publicUrl).toContain("/jackets/");
+  });
+
+  it("서버가 주소를 조립한다 — 사용자 URL을 받지 않는다", async () => {
+    const f = vi.fn().mockResolvedValue(imageResponse(PNG));
+    vi.stubGlobal("fetch", f);
+    const result = await uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ");
+    uploaded.push(result.path);
+    const requested = String(f.mock.calls[0][0]);
+    expect(requested.startsWith("https://i.ytimg.com/vi/dQw4w9WgXcQ/")).toBe(true);
+  });
+
+  it("videoId 형식이 아니면 거부한다", async () => {
+    const f = vi.fn();
+    vi.stubGlobal("fetch", f);
+    for (const bad of ["../../etc", "short", "way-too-long-id-here", "", null]) {
+      await expect(uploadJacketFromYoutube(songbookId, bad)).rejects.toThrow(UploadError);
+    }
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("이미지가 아닌 응답을 거부한다", async () => {
+    // 유튜브가 오류 페이지를 200으로 주는 경우가 있다.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      imageResponse(Buffer.from("<html>not found</html>")),
+    ));
+    await expect(uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ"))
+      .rejects.toThrow(UploadError);
+  });
+
+  it("maxres가 없으면 hqdefault로 물러난다", async () => {
+    const f = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) })
+      .mockResolvedValueOnce(imageResponse(PNG));
+    vi.stubGlobal("fetch", f);
+    const result = await uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ");
+    uploaded.push(result.path);
+    expect(String(f.mock.calls[1][0])).toContain("hqdefault");
+  });
+
+  it("둘 다 없으면 거부한다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      { ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) },
+    ));
+    await expect(uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ"))
+      .rejects.toThrow(UploadError);
+  });
+
+  it("너무 큰 썸네일을 거부한다", async () => {
+    const huge = Buffer.concat([PNG, Buffer.alloc(3 * 1024 * 1024)]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(imageResponse(huge)));
+    await expect(uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ"))
+      .rejects.toThrow(/2MB/);
+  });
+});
+```
+
+- [ ] **Step 2: 테스트가 실패하는지 확인**
+
+Run: `pnpm test:db`
+Expected: FAIL — `uploadJacketFromYoutube` is not exported
+
+- [ ] **Step 3: `lib/storage.js` 에 추가**
+
+파일 끝에 추가한다. 기존 상수(`MAX_BYTES`, `EXTENSION`, `CONTENT_TYPE`)를 재사용한다.
+
+```js
+// 유튜브 videoId 형식. 서버가 주소를 조립하므로 여기서 걸러야 경로 주입이 막힌다.
+const YOUTUBE_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+
+// 화질 좋은 것부터 시도한다. maxres 는 없는 영상이 많아 hqdefault 로 물러난다.
+const THUMBNAIL_NAMES = ["maxresdefault.jpg", "hqdefault.jpg"];
+
+// 유튜브 썸네일을 받아 Storage에 올린다.
+//
+// 사용자에게서 URL을 받지 않는다 — videoId 만 받아 서버가 주소를 조립하므로
+// SSRF 경로가 없다. 받은 바이트도 업로드와 똑같이 매직바이트로 검증한다.
+export async function uploadJacketFromYoutube(songbookId, videoId) {
+  if (!YOUTUBE_ID_RE.test(String(videoId ?? ""))) {
+    throw new UploadError("유튜브 영상 주소를 확인해 주세요.");
+  }
+
+  let buffer = null;
+  for (const name of THUMBNAIL_NAMES) {
+    const res = await fetch(`https://i.ytimg.com/vi/${videoId}/${name}`);
+    if (!res.ok) continue;
+    const candidate = Buffer.from(await res.arrayBuffer());
+    if (candidate.length > 0) {
+      buffer = candidate;
+      break;
+    }
+  }
+  if (!buffer) throw new UploadError("썸네일을 가져오지 못했어요.");
+
+  if (buffer.length > MAX_BYTES) {
+    throw new UploadError("2MB 이하 이미지만 자켓으로 쓸 수 있어요.");
+  }
+
+  // 유튜브가 오류 페이지를 200으로 주는 경우가 있어 바이트로 다시 확인한다.
+  const type = detectImageType(buffer);
+  if (!type) throw new UploadError("썸네일이 이미지가 아니에요.");
+
+  const path = `${songbookId}/${crypto.randomUUID()}.${EXTENSION[type]}`;
+  const { error } = await getDb().storage
+    .from(JACKETS_BUCKET)
+    .upload(path, buffer, { contentType: CONTENT_TYPE[type], upsert: false });
+  if (error) failed(error, "썸네일 저장");
+
+  return { path, publicUrl: jacketPublicUrl(path) };
+}
+```
+
+- [ ] **Step 4: 라우트 작성**
+
+`app/api/songbooks/[id]/jacket/youtube/route.js`:
+
+```js
+import { NextResponse } from "next/server";
+import { requireSongbookAccess } from "@/lib/authz";
+import { errorResponse, requireSameOrigin } from "@/lib/http";
+import { uploadJacketFromYoutube, UploadError } from "@/lib/storage";
+
+export async function POST(request, { params }) {
+  try {
+    requireSameOrigin(request);
+    const { id } = await params;
+    await requireSongbookAccess(id, { min: "manager" });
+
+    const input = await request.json();
+    const result = await uploadJacketFromYoutube(id, input?.videoId);
+    return NextResponse.json(result, { status: 201 });
+  } catch (err) {
+    if (err instanceof UploadError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    return errorResponse(err);
+  }
+}
+```
+
+- [ ] **Step 5: 통합 테스트 추가**
+
+`tests/integration/songs.test.js` 의 "곡 API 인가" 스위트에 추가한다:
+
+```js
+  it("썸네일 자켓도 인가를 거친다 — 타인은 404", async () => {
+    const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}/jacket/youtube`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: strangerCookie },
+      body: JSON.stringify({ videoId: "dQw4w9WgXcQ" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("videoId 형식이 틀리면 400", async () => {
+    const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}/jacket/youtube`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ videoId: "../../etc/passwd" }),
+    });
+    expect(res.status).toBe(400);
+  });
+```
+
+- [ ] **Step 6: 화면 배선**
+
+`app/manage/[slug]/songs/new/page.jsx` 의 "유튜브 썸네일 쓰기" 처리를 바꾼다.
+지금은 `setJacket(썸네일URL)` + `setJacketPath(null)` 인데, 서버를 거치도록 한다:
+
+```js
+  async function useYoutubeThumbnail(videoId) {
+    setJacketError(null);
+    try {
+      const res = await fetch(`/api/songbooks/${songbookId}/jacket/youtube`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ videoId }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setJacketError(body.error ?? "썸네일을 가져오지 못했어요.");
+        return;
+      }
+      setJacket(body.publicUrl);
+      setJacketPath(body.path);
+    } catch {
+      setJacketError("썸네일을 가져오지 못했어요.");
+    }
+  }
+```
+
+기존 버튼의 `onClick` 이 이 함수를 부르게 하고, `songbookId` 가 없으면 버튼을 비활성한다.
+`jacketError` 상태가 이미 있으면 그걸 쓰고, 없으면 기존 오류 표시 방식을 따른다.
+
+**유튜브 메타를 불러올 때 자동으로 자켓을 채우던 동작은 그대로 둔다** — 미리보기용이고,
+사용자가 "썸네일 쓰기"를 눌러야 실제로 저장된다. 자동 채움 시점에 서버를 때리면
+`불러오기` 한 번에 매번 Storage 파일이 생겨 고아가 쌓인다.
+
+- [ ] **Step 7: 검증**
+
+Run: `pnpm test:db`
+Expected: 81 passed (기존 74 + storage-youtube 7)
+
+Run: `pnpm test:e2e`
+Expected: 43 passed (Task 9 후 41 + 이번 2)
+
+Run: `pnpm test` / `pnpm build`
+Expected: 64 / 성공
+
+- [ ] **Step 8: 커밋**
+
+```bash
+git add lib/storage.js app/api/songbooks/\[id\]/jacket/youtube tests/db/storage-youtube.test.js tests/integration/songs.test.js app/manage/\[slug\]/songs/new/page.jsx
+git commit -m "feat: 유튜브 썸네일을 서버가 받아 자켓으로 저장"
+```
+
+---
+
 ## 완료 기준
 
 - [ ] `pnpm test` 64 passed
-- [ ] `pnpm test:db` 65 passed
-- [ ] `pnpm test:e2e` 33 passed
+- [ ] `pnpm test:db` 76 passed
+- [ ] `pnpm test:e2e` 43 passed
 - [ ] `pnpm build` 통과
 - [ ] **`app/api/songs/route.js`, `app/api/songs/bulk/route.js`, `app/api/upload/route.js` 가 존재하지 않는다**
 - [ ] `grep -rn "getDb()" app/` 결과 없음 — 라우트가 DB를 직접 만지지 않는다

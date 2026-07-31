@@ -6,8 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run --exclude 'tests/db/**'",
+    "test": "vitest run --exclude 'tests/db/**' --exclude 'tests/integration/**'",
     "test:db": "vitest run tests/db",
+    "test:e2e": "vitest run tests/integration",
     "test:watch": "vitest"
   },
   "dependencies": {
