@@ -5,11 +5,17 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "vitest run --exclude 'tests/db/**'",
+    "test:db": "vitest run tests/db",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "next": "^15.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
   }
 }
