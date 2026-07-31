@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 import { GENRES, PRICE_PRESETS, KEY_RANGE, formatKey, formatPrice } from "@/data/genres";
 import { kanaToHangul, hasKana } from "@/lib/kana";
 import { extractVideoId, suggestFromTitle } from "@/lib/youtube";
@@ -106,6 +107,20 @@ function AliasInput({ id, label, sub, value, onChange, aliases, onAliasesChange,
 }
 
 export default function NewSongPage() {
+  const { slug } = useParams();
+  const [songbookId, setSongbookId] = useState(null);
+
+  // 라우트는 slug를 받지만 API는 노래책 id를 받는다.
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((d) => {
+        const book = (d.songbooks ?? []).find((b) => b.slug === slug);
+        setSongbookId(book?.id ?? null);
+      })
+      .catch(() => setSongbookId(null));
+  }, [slug]);
+
   const [mode, setMode] = useState("single");
   const [mrUrl, setMrUrl] = useState("");
   const [mrMeta, setMrMeta] = useState(null);
@@ -117,6 +132,9 @@ export default function NewSongPage() {
   const [artist, setArtist] = useState("");
   const [artistAliases, setArtistAliases] = useState([]);
   const [jacket, setJacket] = useState("");
+  // jacket은 미리보기 URL, jacketPath는 실제 곡 저장에 쓰는 Storage 경로.
+  // 업로드 응답이 {path, publicUrl}로 나뉘어 두 값을 함께 들고 있어야 한다.
+  const [jacketPath, setJacketPath] = useState(null);
 
   const [genre, setGenre] = useState("");
   const [songKey, setSongKey] = useState(0);
@@ -143,7 +161,10 @@ export default function NewSongPage() {
         return;
       }
       setMrMeta(data);
-      if (!jacket) setJacket(data.thumbnail);
+      if (!jacket) {
+        setJacket(data.thumbnail);
+        setJacketPath(null);
+      }
     } catch {
       setMrError("네트워크 오류로 불러오지 못했어요.");
     } finally {
@@ -155,10 +176,14 @@ export default function NewSongPage() {
     if (!file) return;
     const body = new FormData();
     body.append("file", file);
-    const res = await fetch("/api/upload", { method: "POST", body });
+    const res = await fetch(`/api/songbooks/${songbookId}/jacket`, { method: "POST", body });
     const data = await res.json();
-    if (res.ok) setJacket(data.url);
-    else setStatus({ type: "error", message: data.error });
+    if (res.ok) {
+      setJacket(data.publicUrl);
+      setJacketPath(data.path);
+    } else {
+      setStatus({ type: "error", message: data.error });
+    }
   }
 
   const currentKeyLink = songKey === 0 ? mrUrl : keyLinks[String(songKey)] || "";
@@ -180,7 +205,7 @@ export default function NewSongPage() {
     setSaving(true);
     setStatus(null);
     const payload = {
-      jacket: jacket || null,
+      jacketPath: jacketPath || null,
       title: title.trim(),
       titleAliases,
       artist: artist.trim(),
@@ -195,7 +220,7 @@ export default function NewSongPage() {
       price: Number(price) || 0,
     };
 
-    const res = await fetch("/api/songs", {
+    const res = await fetch(`/api/songbooks/${songbookId}/songs`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -218,6 +243,7 @@ export default function NewSongPage() {
     setArtist("");
     setArtistAliases([]);
     setJacket("");
+    setJacketPath(null);
     setSongKey(0);
     setKeyLinks({});
   }
@@ -249,7 +275,7 @@ export default function NewSongPage() {
         </button>
       </div>
 
-      {mode === "csv" && <CsvImport />}
+      {mode === "csv" && <CsvImport songbookId={songbookId} />}
 
       <div className="admin-body" hidden={mode !== "single"}>
         <div>
@@ -355,13 +381,23 @@ export default function NewSongPage() {
                     <button
                       type="button"
                       className="btn btn-ghost"
-                      onClick={() => setJacket(mrMeta.thumbnail)}
+                      onClick={() => {
+                        setJacket(mrMeta.thumbnail);
+                        setJacketPath(null);
+                      }}
                     >
                       유튜브 썸네일 쓰기
                     </button>
                   )}
                   {jacket && (
-                    <button type="button" className="btn btn-ghost" onClick={() => setJacket("")}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={() => {
+                        setJacket("");
+                        setJacketPath(null);
+                      }}
+                    >
                       제거
                     </button>
                   )}

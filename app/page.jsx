@@ -164,8 +164,8 @@ export default function SongbookPage() {
               치지직으로 로그인
             </a>
           )}
-          <a className="btn btn-ghost" href="/admin/songs/new">
-            곡 등록
+          <a className="btn btn-ghost" href="/manage">
+            노래책 관리
           </a>
         </div>
       </header>

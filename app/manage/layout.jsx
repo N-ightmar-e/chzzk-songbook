@@ -1,4 +1,4 @@
-import "./admin.css";
+import "./manage.css";
 
 export const metadata = {
   title: "곡 등록 · 노래책",
