@@ -2031,35 +2031,60 @@ describeE2e("곡 API 인가", () => {
 
 describeE2e("제거된 무방비 라우트", () => {
   let server;
+
   beforeAll(async () => { server = await startServer(); });
   afterAll(() => { server?.stop(); });
+  beforeEach(async () => { await truncateAll(getDb()); });
 
-  // 인증 없이 열려 있던 라우트들이다. 반드시 사라져야 한다.
-  it("POST /api/songs 는 더 이상 없다", async () => {
+  // 인증 없이 열려 있던 라우트들이다. 지켜야 할 성질은 "인증 없이 곡이 만들어지지
+  // 않는다"이지 "정확히 404가 돌아온다"가 아니다.
+  //
+  // 상태코드를 못 박으면 안 되는 이유: /api/songs/bulk 는 형제 동적 라우트
+  // /api/songs/[id] 에 id="bulk" 로 매치되고, 그 라우트가 PATCH/DELETE 만 export 하므로
+  // Next 가 프레임워크 레벨에서 405 를 준다(우리 코드는 실행되지도 않는다).
+  // 405 를 404 로 만들려면 테스트를 만족시키기 위한 빈 핸들러를 넣어야 하는데,
+  // 그건 순서가 거꾸로다. 대신 아래처럼 실제 성질을 검사한다.
+  async function songCount() {
+    const { count } = await getDb().from("songs").select("id", { count: "exact", head: true });
+    return count ?? 0;
+  }
+
+  it("POST /api/songs 로는 곡이 만들어지지 않는다", async () => {
     const res = await fetch(`${server.baseUrl}/api/songs`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: server.baseUrl },
       body: JSON.stringify(SONG),
     });
-    expect(res.status).toBe(404);
+    expect(res.ok).toBe(false);
+    expect(await songCount()).toBe(0);
   });
 
-  it("POST /api/songs/bulk 는 더 이상 없다", async () => {
+  it("POST /api/songs/bulk 로는 곡이 만들어지지 않는다", async () => {
     const res = await fetch(`${server.baseUrl}/api/songs/bulk`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: server.baseUrl },
       body: JSON.stringify({ songs: [SONG] }),
     });
-    expect(res.status).toBe(404);
+    expect(res.ok).toBe(false);
+    expect(await songCount()).toBe(0);
   });
 
   it("POST /api/upload 는 더 이상 없다", async () => {
+    // 이 경로는 형제 동적 라우트가 없어 그대로 404 다.
     const res = await fetch(`${server.baseUrl}/api/upload`, {
       method: "POST",
       headers: { origin: server.baseUrl },
       body: new FormData(),
     });
     expect(res.status).toBe(404);
+  });
+
+  it("옛 라우트 파일이 저장소에 남아있지 않다", async () => {
+    // 상태코드는 프레임워크 사정에 따라 변할 수 있다. 파일 부재는 변하지 않는다.
+    const fs = await import("node:fs");
+    expect(fs.existsSync("app/api/songs/route.js")).toBe(false);
+    expect(fs.existsSync("app/api/songs/bulk/route.js")).toBe(false);
+    expect(fs.existsSync("app/api/upload/route.js")).toBe(false);
   });
 });
 ```
@@ -2305,7 +2330,7 @@ rmdir app/api/songs/bulk app/api/upload 2>/dev/null || true
 - [ ] **Step 9: 테스트 확인**
 
 Run: `pnpm test:e2e`
-Expected: 전부 통과 (smoke 3 + 노래책 19 + 곡 13 + 제거확인 3 = 38)
+Expected: 전부 통과 (smoke 3 + 노래책 19 + 곡 13 + 제거확인 4 = 39)
 
 Run: `pnpm test && pnpm test:db`
 Expected: 64 / 74
@@ -2825,7 +2850,7 @@ Expected: 성공. 라우트 목록에 `/manage`, `/manage/[slug]`, `/manage/[slu
 `/manage/[slug]/songs/new` 가 있고 `/admin/*` 이 없어야 한다.
 
 Run: `pnpm test && pnpm test:db && pnpm test:e2e`
-Expected: 64 / 74 / 38
+Expected: 64 / 74 / 39
 
 수동 확인 — `pnpm dev --port 3001` 로 띄우고 (상위 세션에 요청):
 1. `/manage` 접속 → 로그인 안 됐으면 로그인 버튼
@@ -2964,7 +2989,7 @@ Run: `pnpm test:db`
 Expected: 69 passed (기존 74 − 삭제한 authz 5)
 
 Run: `pnpm test:e2e`
-Expected: 38 passed
+Expected: 39 passed
 
 - [ ] **Step 5: 커밋**
 
@@ -2979,7 +3004,7 @@ git commit -m "test: 이연 항목 정리하고 인가 검증을 통합 테스�
 
 - [ ] `pnpm test` 64 passed
 - [ ] `pnpm test:db` 69 passed
-- [ ] `pnpm test:e2e` 38 passed
+- [ ] `pnpm test:e2e` 39 passed
 - [ ] `pnpm build` 통과
 - [ ] **`app/api/songs/route.js`, `app/api/songs/bulk/route.js`, `app/api/upload/route.js` 가 존재하지 않는다**
 - [ ] `grep -rn "getDb()" app/` 결과 없음 — 라우트가 DB를 직접 만지지 않는다
