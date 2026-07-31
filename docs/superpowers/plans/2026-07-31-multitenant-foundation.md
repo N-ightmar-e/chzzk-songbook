@@ -2575,20 +2575,76 @@ Expected: 결과가 없어야 한다. 남아 있으면 해당 줄을 지운다.
 Run: `pnpm build`
 Expected: 성공. 라우트 목록에 `/api/auth/demo` 가 추가로 보인다.
 
-- [ ] **Step 9: 수동 왕복 확인**
+- [ ] **Step 9: 수동 왕복 확인 (데모 경로로 배선 검증)**
 
-`.env` 에 Supabase 값을 넣고 (치지직 credential은 비워둔 채) 실행한다.
+**포트에 주의한다.** `.env` 의 `CHZZK_REDIRECT_URI` 가 `http://localhost:3001/api/auth/callback`
+이므로 반드시 3001로 띄운다. 기본 3000으로 띄우면 치지직이 3001로 리다이렉트해 콜백이
+조용히 실패한다.
 
 ```bash
-pnpm dev
+pnpm dev --port 3001
 ```
 
-1. 브라우저에서 `http://localhost:3000/api/auth/login` 접속 → `/` 로 리다이렉트
-2. `http://localhost:3000/api/me` → `{"user":{"channelName":"새벽감자",...},"oauthConfigured":false}`
-3. Supabase 대시보드에서 `select * from users;`, `select * from sessions;` → 각 1행
-4. `curl -X POST http://localhost:3000/api/auth/logout` (브라우저 개발자도구 콘솔에서 `fetch('/api/auth/logout',{method:'POST'})`)
-5. Supabase에서 `select revoked_at from sessions;` → 값이 채워져 있음
-6. `/api/me` → `{"user":null,...}`
+`.env` 에는 치지직 credential이 이미 채워져 있으므로 `isConfigured()` 가 참이고,
+`/api/auth/login` 은 데모가 아니라 **실제 치지직 OAuth로 나간다.** 실 OAuth 왕복은 브라우저에서
+사람이 로그인해야 하므로 Step 10에서 따로 다룬다. 이 단계에서는 **데모 라우트를 직접 호출해
+세션·DB 배선만** 검증한다(개발 환경에서만 동작하며 프로덕션에서는 404).
+
+`curl` 은 쿠키를 유지해야 하므로 쿠키 항아리를 쓴다.
+
+```bash
+# 1) 데모 로그인 — 세션 발급
+curl -s -c /tmp/cj.txt -b /tmp/cj.txt -o /dev/null -w "%{http_code}\n" \
+  -L "http://localhost:3001/api/auth/demo"
+# 기대: 200
+
+# 2) 로그인 상태 조회
+curl -s -c /tmp/cj.txt -b /tmp/cj.txt "http://localhost:3001/api/me"
+# 기대: {"user":{"id":"...","channelName":"새벽감자",...},"oauthConfigured":true}
+
+# 3) 로그아웃
+curl -s -c /tmp/cj.txt -b /tmp/cj.txt -X POST "http://localhost:3001/api/auth/logout"
+# 기대: {"ok":true}
+
+# 4) 로그아웃 후 재조회
+curl -s -c /tmp/cj.txt -b /tmp/cj.txt "http://localhost:3001/api/me"
+# 기대: {"user":null,"oauthConfigured":true}
+```
+
+**쿠키에 토큰이 없는지 직접 확인한다.** 이 계획의 핵심 보안 목표다.
+
+```bash
+grep songbook_session /tmp/cj.txt
+```
+
+쿠키 값을 `.` 기준 앞부분만 base64url 디코드하면 **UUID 하나만** 나와야 한다.
+`accessToken` 같은 문자열이 보이면 실패다.
+
+DB도 확인한다(Supabase SQL Editor 또는 상위 세션에 요청):
+
+```sql
+select count(*) from users;                       -- 1 이상
+select id, revoked_at from sessions order by created_at desc limit 1;  -- revoked_at 채워져 있음
+select count(*) from user_tokens;                 -- 0 (데모 유저는 노래책 소유자가 아니므로 토큰 미저장)
+```
+
+- [ ] **Step 10: 실제 치지직 OAuth 왕복 (사람이 브라우저에서)**
+
+자동화할 수 없다. 서버를 3001로 띄운 상태에서 사람이 확인한다.
+
+1. 브라우저로 `http://localhost:3001/api/auth/login` 접속
+2. 치지직 로그인 화면으로 이동하는지 확인 (`chzzk.naver.com/account-interlock`)
+3. 로그인·연동 승인
+4. `http://localhost:3001/` 로 돌아오는지 확인
+5. `http://localhost:3001/api/me` 에서 **본인 치지직 채널명**이 나오는지 확인
+6. Supabase에서 `select chzzk_channel_id, chzzk_channel_name, last_login_at from users;`
+   → 본인 채널 정보가 들어있는지 확인
+
+**여기서 확인되는 것:** 스펙의 미해결 항목이었던 "`/auth/v1/token` 응답에도 공통 봉투가
+붙는가"가 실물로 판명된다. 봉투가 없으면 `lib/chzzk.js` 의 `unwrap` 이 평평한 응답도
+수용하므로 어느 쪽이든 동작해야 하며, 만약 실패하면 그 자체가 중요한 발견이다.
+
+이 단계가 실패하면 **Task 11을 미완료로 두고 원인을 보고한다.** 임의로 코드를 고치지 않는다.
 
 - [ ] **Step 10: 전체 테스트 확인**
 
