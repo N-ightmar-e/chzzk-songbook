@@ -398,6 +398,46 @@ describeDb("lib/db/songbooks", () => {
     ).rejects.toThrow();
   });
 
+  it("남의 이력에 남은 옛 주소로는 바꿀 수 없다", async () => {
+    // 피해자가 개명한 직후 공격자가 옛 주소를 가로채는 경로다.
+    // songbooks.slug 의 unique 제약은 "현재" 충돌만 막으므로 여기서 걸러야 한다.
+    const victim = await createSongbook({ ownerId: owner.id, slug: "old", title: "피해자" });
+    await changeSlug(victim.id, "new");
+
+    const attacker = await createSongbook({ ownerId: other.id, slug: "attacker", title: "공격자" });
+    await expect(changeSlug(attacker.id, "old")).rejects.toThrow();
+
+    // 옛 주소는 여전히 피해자의 것을 가리켜야 한다
+    expect((await findSongbookByHistoricalSlug("old")).currentSlug).toBe("new");
+  });
+
+  it("남이 현재 쓰는 주소로는 바꿀 수 없다", async () => {
+    const mine = await createSongbook({ ownerId: owner.id, slug: "mine", title: "A" });
+    await createSongbook({ ownerId: other.id, slug: "theirs", title: "B" });
+    await expect(changeSlug(mine.id, "theirs")).rejects.toThrow();
+  });
+
+  it("자기 옛 주소로는 되돌릴 수 있고 이력에서 사라진다", async () => {
+    // 남의 주소를 가로채는 게 아니므로 막을 이유가 없다.
+    // 되돌린 뒤 이력에 남겨두면 isSlugTaken 이 영원히 참이 되어 스스로도 못 쓰게 된다.
+    const book = await createSongbook({ ownerId: owner.id, slug: "first", title: "A" });
+    await changeSlug(book.id, "second");
+    const back = await changeSlug(book.id, "first");
+    expect(back.slug).toBe("first");
+    expect(await findSongbookByHistoricalSlug("first")).toBeNull();
+    // 직전 주소는 이력에 남는다
+    expect((await findSongbookByHistoricalSlug("second")).currentSlug).toBe("first");
+  });
+
+  it("주소를 바꾸는 동안 옛 주소가 비는 순간이 없다", async () => {
+    // 이력 insert 가 update 보다 먼저여야 한다. 순서가 반대면 그 사이에
+    // 옛 주소가 두 테이블 어디에도 없어 제3자가 가져갈 수 있다.
+    const book = await createSongbook({ ownerId: owner.id, slug: "window", title: "A" });
+    await changeSlug(book.id, "moved");
+    // 변경 후 옛 주소는 반드시 점유 상태여야 한다
+    expect(await isSlugTaken("window")).toBe(true);
+  });
+
   it("같은 노래책이 slug를 두 번 바꿔도 이력이 쌓인다", async () => {
     const book = await createSongbook({ ownerId: owner.id, slug: "a1", title: "A" });
     await changeSlug(book.id, "b1");
@@ -566,16 +606,44 @@ export async function changeSlug(id, newSlug) {
   if (!current) failed({ message: "노래책을 찾을 수 없음" }, "주소 변경");
   if (current.slug === value) return current;
 
+  // createSongbook 과 같은 이유로 여기서도 검사한다. songbooks.slug 의 unique 제약은
+  // "현재" slug 충돌만 막으므로, 남의 이력에만 남은 옛 주소는 아무 제약에도 안 걸린다.
+  // 빠뜨리면 남이 주소를 바꾼 직후 그 주소를 가로채 사칭할 수 있다.
+  if (await findSongbookBySlug(value)) {
+    failed({ message: "이미 사용 중인 주소" }, "주소 변경");
+  }
+  const history = await findSongbookByHistoricalSlug(value);
+  if (history && history.songbookId !== id) {
+    failed({ message: "이미 사용 중인 주소" }, "주소 변경");
+  }
+
+  // 이력을 먼저 남기고 나서 현재 slug 를 바꾼다. 순서가 반대면 update 커밋 직후
+  // insert 커밋 직전에 옛 주소가 songbooks 에도 이력에도 없는 창이 생기고,
+  // 그 찰나에 들어온 createSongbook 이 isSlugTaken 을 통과해 옛 주소를 가져간다.
+  // 이 순서면 그 창 동안 옛 주소가 이미 이력에 있어 항상 점유된 것으로 보인다.
+  // update 가 실패해도 "이력에도 있고 현재도 그대로"라 노래책은 정상 동작하며,
+  // 재시도 시 upsert 가 중복을 무시하므로 자가 치유된다.
+  const { error: historyError } = await db
+    .from("songbook_slug_history")
+    .upsert(
+      { slug: current.slug, songbook_id: id },
+      { onConflict: "slug", ignoreDuplicates: true },
+    );
+  if (historyError) failed(historyError, "옛 주소 보존");
+
   const { data, error } = await db
     .from("songbooks")
     .update({ slug: value, updated_at: new Date().toISOString() })
     .eq("id", id).select().single();
   if (error) failed(error, "주소 변경");
 
-  const { error: historyError } = await db
-    .from("songbook_slug_history")
-    .insert({ slug: current.slug, songbook_id: id });
-  if (historyError) failed(historyError, "옛 주소 보존");
+  // 자기 옛 주소로 되돌아온 경우 그 이력 행을 지운다 — 같은 주소가 현재와 이력에
+  // 동시에 있으면 isSlugTaken 이 영원히 참이 되어 스스로도 다시 쓸 수 없게 된다.
+  if (history) {
+    const { error: cleanupError } = await db
+      .from("songbook_slug_history").delete().eq("slug", value);
+    if (cleanupError) failed(cleanupError, "옛 주소 정리");
+  }
 
   return toSongbook(data);
 }
@@ -625,7 +693,7 @@ export async function listSongbooksForUser(userId) {
 - [ ] **Step 4: 테스트 확인**
 
 Run: `pnpm test:db`
-Expected: 50 passed (기존 37 + songbooks 13)
+Expected: 54 passed (기존 37 + songbooks 17)
 
 - [ ] **Step 5: `app/api/auth/callback/route.js` 의 인라인 쿼리 교체**
 
@@ -1152,7 +1220,7 @@ Run: `pnpm test:e2e`
 Expected: 전부 통과 (smoke 3 + 인가 7 + 생성 7 = 17)
 
 Run: `pnpm test && pnpm test:db && pnpm build`
-Expected: 56 / 50 / 성공
+Expected: 56 / 54 / 성공
 
 - [ ] **Step 7: 커밋**
 
@@ -1414,7 +1482,7 @@ export async function countSongs(songbookId) {
 - [ ] **Step 4: 테스트 확인**
 
 Run: `pnpm test:db`
-Expected: 63 passed (기존 50 + songs 13)
+Expected: 67 passed (기존 54 + songs 13)
 
 - [ ] **Step 5: 커밋**
 
@@ -1706,7 +1774,7 @@ Run: `pnpm test`
 Expected: 64 passed (기존 56 + image 8)
 
 Run: `pnpm test:db`
-Expected: 70 passed (기존 63 + storage 7)
+Expected: 74 passed (기존 67 + storage 7)
 
 - [ ] **Step 9: 커밋**
 
@@ -2158,7 +2226,7 @@ Run: `pnpm test:e2e`
 Expected: 전부 통과 (smoke 3 + 노래책 14 + 곡 13 + 제거확인 3 = 33)
 
 Run: `pnpm test && pnpm test:db`
-Expected: 64 / 70
+Expected: 64 / 74
 
 Run: `pnpm build`
 Expected: 성공. **`/api/upload` 가 라우트 목록에서 사라졌는지 확인한다.**
@@ -2675,7 +2743,7 @@ Expected: 성공. 라우트 목록에 `/manage`, `/manage/[slug]`, `/manage/[slu
 `/manage/[slug]/songs/new` 가 있고 `/admin/*` 이 없어야 한다.
 
 Run: `pnpm test && pnpm test:db && pnpm test:e2e`
-Expected: 64 / 70 / 33
+Expected: 64 / 74 / 33
 
 수동 확인 — `pnpm dev --port 3001` 로 띄우고 (상위 세션에 요청):
 1. `/manage` 접속 → 로그인 안 됐으면 로그인 버튼
@@ -2753,7 +2821,7 @@ Run: `pnpm test`
 Expected: 64 passed (변동 없음)
 
 Run: `pnpm test:db`
-Expected: 65 passed (기존 70 − 삭제한 authz 5)
+Expected: 69 passed (기존 74 − 삭제한 authz 5)
 
 Run: `pnpm test:e2e`
 Expected: 33 passed
@@ -2770,7 +2838,7 @@ git commit -m "test: 이연 항목 정리하고 인가 검증을 통합 테스�
 ## 완료 기준
 
 - [ ] `pnpm test` 64 passed
-- [ ] `pnpm test:db` 65 passed
+- [ ] `pnpm test:db` 69 passed
 - [ ] `pnpm test:e2e` 33 passed
 - [ ] `pnpm build` 통과
 - [ ] **`app/api/songs/route.js`, `app/api/songs/bulk/route.js`, `app/api/upload/route.js` 가 존재하지 않는다**
