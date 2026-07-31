@@ -48,6 +48,12 @@ select count(*) from pg_policies where schemaname='public';            -- 0
 > `.env.test` 파서(`tests/helpers/setup.js`)는 따옴표를 벗기지 않으므로,
 > 따옴표를 붙이면 값에 그대로 섞여 들어가 인증이 실패한다.
 
+> **`.env` 와 `.env.test` 의 `SESSION_SECRET` 과 `TOKEN_ENCRYPTION_KEY` 는 같은 값이어야 한다.**
+> 통합 테스트(`pnpm test:e2e`)는 개발 서버를 **별도 프로세스로** 띄우고, 테스트 프로세스가
+> 만든 쿠키를 그 서버가 검증한다. 두 값이 다르면 서명이 맞지 않아 서버가 쿠키를 무시하고,
+> 증상이 "로그인했는데 비로그인으로 나온다"로 나타나 원인 추적이 어렵다.
+> 암호화 키도 마찬가지다 — 두 프로세스가 같은 DB의 암호문을 읽는다.
+
 ## 실행
 
 ```bash
