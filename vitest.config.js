@@ -13,6 +13,7 @@ export default defineConfig({
     // 단위 테스트는 수백 ms라 직렬화 비용이 무시할 수준이다.
     fileParallelism: false,
     setupFiles: ["tests/helpers/setup.js"],
+    globalSetup: ["tests/helpers/global-server.js"],
     // 통합 테스트는 개발 서버 기동을 기다린다.
     testTimeout: 30_000,
     hookTimeout: 150_000,
