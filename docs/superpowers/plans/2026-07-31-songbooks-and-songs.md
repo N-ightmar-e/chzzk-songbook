@@ -12,7 +12,7 @@
 **인계 사항:** `docs/superpowers/specs/2026-07-31-foundation-handoff.md`
 **선행 완료:** `docs/superpowers/plans/2026-07-31-multitenant-foundation.md` (계획 1, main에 병합됨)
 
-**이 계획의 범위:** 스펙 구현순서 4~6단계 + 인계 문서의 계획 2 항목 8개.
+**이 계획의 범위:** 스펙 구현순서 4~6단계 + 인계 문서의 계획 2 항목 8개 + 실행 중 결정된 Task 10(유튜브 썸네일 자켓).
 매니저 동기화·초대·`/@handle` 시청자 페이지·기존 자산 삭제는 계획 3이다.
 
 ## Global Constraints
@@ -3196,11 +3196,292 @@ git commit -m "test: 이연 항목 정리하고 인가 검증을 통합 테스�
 
 ---
 
+---
+
+### Task 10: 유튜브 썸네일을 자켓으로 저장
+
+**Files:**
+- Modify: `lib/storage.js`
+- Create: `app/api/songbooks/[id]/jacket/youtube/route.js`
+- Modify: `app/manage/[slug]/songs/new/page.jsx`
+- Create: `tests/db/storage-youtube.test.js`
+- Modify: `tests/integration/songs.test.js`
+
+**Interfaces:**
+- Consumes: `detectImageType`, `getDb`, `requireSongbookAccess`, `requireSameOrigin`
+- Produces:
+  - `lib/storage.js`: `uploadJacketFromYoutube(songbookId, videoId): Promise<{path, publicUrl}>`
+  - `POST /api/songbooks/[id]/jacket/youtube` — body `{ videoId }` (`min: 'manager'`)
+
+**왜 필요한가:** Task 8 이설로 "유튜브 썸네일 쓰기"가 미리보기에만 남고 저장되지 않게 됐다.
+`jacket_path` 가 Storage 경로만 담는 계약이라 외부 URL을 넣을 수 없기 때문이다. 서버가
+썸네일을 받아 Storage에 올리면 기능이 되살아나면서 계약도 유지된다.
+
+**SSRF 없음:** 사용자에게서 URL을 받지 않는다. `videoId` 만 받아 **서버가 주소를 조립**한다.
+`videoId` 는 `^[A-Za-z0-9_-]{11}$` 로 검증해 경로 주입을 막는다.
+
+**CSV 일괄 등록은 이 기능을 쓰지 않는다.** 1,000곡 임포트에 썸네일 1,000개를 받아오면
+요청이 수 분씩 걸린다. CSV로 넣은 곡은 개별 수정에서 자켓을 넣는다. 이 결정을 코드 주석과
+`docs/SETUP.md` 에 남기지는 않되, CSV 경로가 자켓을 비우는 현재 동작을 유지한다.
+
+- [ ] **Step 1: 실패하는 테스트 작성**
+
+`tests/db/storage-youtube.test.js`:
+
+```js
+import { it, expect, afterEach, vi } from "vitest";
+import { describeDb } from "../helpers/db.js";
+import { uploadJacketFromYoutube, deleteJacket, UploadError } from "@/lib/storage";
+
+// 1x1 투명 PNG
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+function imageResponse(bytes) {
+  return { ok: true, status: 200, arrayBuffer: async () => bytes.buffer.slice(
+    bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+}
+
+describeDb("lib/storage — 유튜브 썸네일", () => {
+  const songbookId = "00000000-0000-0000-0000-0000000000bb";
+  const uploaded = [];
+
+  afterEach(async () => {
+    for (const path of uploaded) await deleteJacket(path);
+    uploaded.length = 0;
+    vi.unstubAllGlobals();
+  });
+
+  it("썸네일을 받아 Storage에 올린다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(imageResponse(PNG)));
+    const result = await uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ");
+    uploaded.push(result.path);
+    expect(result.path).toMatch(new RegExp(`^${songbookId}/[0-9a-f-]+\\.png$`));
+    expect(result.publicUrl).toContain("/jackets/");
+  });
+
+  it("서버가 주소를 조립한다 — 사용자 URL을 받지 않는다", async () => {
+    const f = vi.fn().mockResolvedValue(imageResponse(PNG));
+    vi.stubGlobal("fetch", f);
+    const result = await uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ");
+    uploaded.push(result.path);
+    const requested = String(f.mock.calls[0][0]);
+    expect(requested.startsWith("https://i.ytimg.com/vi/dQw4w9WgXcQ/")).toBe(true);
+  });
+
+  it("videoId 형식이 아니면 거부한다", async () => {
+    const f = vi.fn();
+    vi.stubGlobal("fetch", f);
+    for (const bad of ["../../etc", "short", "way-too-long-id-here", "", null]) {
+      await expect(uploadJacketFromYoutube(songbookId, bad)).rejects.toThrow(UploadError);
+    }
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("이미지가 아닌 응답을 거부한다", async () => {
+    // 유튜브가 오류 페이지를 200으로 주는 경우가 있다.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      imageResponse(Buffer.from("<html>not found</html>")),
+    ));
+    await expect(uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ"))
+      .rejects.toThrow(UploadError);
+  });
+
+  it("maxres가 없으면 hqdefault로 물러난다", async () => {
+    const f = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) })
+      .mockResolvedValueOnce(imageResponse(PNG));
+    vi.stubGlobal("fetch", f);
+    const result = await uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ");
+    uploaded.push(result.path);
+    expect(String(f.mock.calls[1][0])).toContain("hqdefault");
+  });
+
+  it("둘 다 없으면 거부한다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      { ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) },
+    ));
+    await expect(uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ"))
+      .rejects.toThrow(UploadError);
+  });
+
+  it("너무 큰 썸네일을 거부한다", async () => {
+    const huge = Buffer.concat([PNG, Buffer.alloc(3 * 1024 * 1024)]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(imageResponse(huge)));
+    await expect(uploadJacketFromYoutube(songbookId, "dQw4w9WgXcQ"))
+      .rejects.toThrow(/2MB/);
+  });
+});
+```
+
+- [ ] **Step 2: 테스트가 실패하는지 확인**
+
+Run: `pnpm test:db`
+Expected: FAIL — `uploadJacketFromYoutube` is not exported
+
+- [ ] **Step 3: `lib/storage.js` 에 추가**
+
+파일 끝에 추가한다. 기존 상수(`MAX_BYTES`, `EXTENSION`, `CONTENT_TYPE`)를 재사용한다.
+
+```js
+// 유튜브 videoId 형식. 서버가 주소를 조립하므로 여기서 걸러야 경로 주입이 막힌다.
+const YOUTUBE_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+
+// 화질 좋은 것부터 시도한다. maxres 는 없는 영상이 많아 hqdefault 로 물러난다.
+const THUMBNAIL_NAMES = ["maxresdefault.jpg", "hqdefault.jpg"];
+
+// 유튜브 썸네일을 받아 Storage에 올린다.
+//
+// 사용자에게서 URL을 받지 않는다 — videoId 만 받아 서버가 주소를 조립하므로
+// SSRF 경로가 없다. 받은 바이트도 업로드와 똑같이 매직바이트로 검증한다.
+export async function uploadJacketFromYoutube(songbookId, videoId) {
+  if (!YOUTUBE_ID_RE.test(String(videoId ?? ""))) {
+    throw new UploadError("유튜브 영상 주소를 확인해 주세요.");
+  }
+
+  let buffer = null;
+  for (const name of THUMBNAIL_NAMES) {
+    const res = await fetch(`https://i.ytimg.com/vi/${videoId}/${name}`);
+    if (!res.ok) continue;
+    const candidate = Buffer.from(await res.arrayBuffer());
+    if (candidate.length > 0) {
+      buffer = candidate;
+      break;
+    }
+  }
+  if (!buffer) throw new UploadError("썸네일을 가져오지 못했어요.");
+
+  if (buffer.length > MAX_BYTES) {
+    throw new UploadError("2MB 이하 이미지만 자켓으로 쓸 수 있어요.");
+  }
+
+  // 유튜브가 오류 페이지를 200으로 주는 경우가 있어 바이트로 다시 확인한다.
+  const type = detectImageType(buffer);
+  if (!type) throw new UploadError("썸네일이 이미지가 아니에요.");
+
+  const path = `${songbookId}/${crypto.randomUUID()}.${EXTENSION[type]}`;
+  const { error } = await getDb().storage
+    .from(JACKETS_BUCKET)
+    .upload(path, buffer, { contentType: CONTENT_TYPE[type], upsert: false });
+  if (error) failed(error, "썸네일 저장");
+
+  return { path, publicUrl: jacketPublicUrl(path) };
+}
+```
+
+- [ ] **Step 4: 라우트 작성**
+
+`app/api/songbooks/[id]/jacket/youtube/route.js`:
+
+```js
+import { NextResponse } from "next/server";
+import { requireSongbookAccess } from "@/lib/authz";
+import { errorResponse, requireSameOrigin } from "@/lib/http";
+import { uploadJacketFromYoutube, UploadError } from "@/lib/storage";
+
+export async function POST(request, { params }) {
+  try {
+    requireSameOrigin(request);
+    const { id } = await params;
+    await requireSongbookAccess(id, { min: "manager" });
+
+    const input = await request.json();
+    const result = await uploadJacketFromYoutube(id, input?.videoId);
+    return NextResponse.json(result, { status: 201 });
+  } catch (err) {
+    if (err instanceof UploadError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    return errorResponse(err);
+  }
+}
+```
+
+- [ ] **Step 5: 통합 테스트 추가**
+
+`tests/integration/songs.test.js` 의 "곡 API 인가" 스위트에 추가한다:
+
+```js
+  it("썸네일 자켓도 인가를 거친다 — 타인은 404", async () => {
+    const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}/jacket/youtube`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: strangerCookie },
+      body: JSON.stringify({ videoId: "dQw4w9WgXcQ" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("videoId 형식이 틀리면 400", async () => {
+    const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}/jacket/youtube`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ videoId: "../../etc/passwd" }),
+    });
+    expect(res.status).toBe(400);
+  });
+```
+
+- [ ] **Step 6: 화면 배선**
+
+`app/manage/[slug]/songs/new/page.jsx` 의 "유튜브 썸네일 쓰기" 처리를 바꾼다.
+지금은 `setJacket(썸네일URL)` + `setJacketPath(null)` 인데, 서버를 거치도록 한다:
+
+```js
+  async function useYoutubeThumbnail(videoId) {
+    setJacketError(null);
+    try {
+      const res = await fetch(`/api/songbooks/${songbookId}/jacket/youtube`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ videoId }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setJacketError(body.error ?? "썸네일을 가져오지 못했어요.");
+        return;
+      }
+      setJacket(body.publicUrl);
+      setJacketPath(body.path);
+    } catch {
+      setJacketError("썸네일을 가져오지 못했어요.");
+    }
+  }
+```
+
+기존 버튼의 `onClick` 이 이 함수를 부르게 하고, `songbookId` 가 없으면 버튼을 비활성한다.
+`jacketError` 상태가 이미 있으면 그걸 쓰고, 없으면 기존 오류 표시 방식을 따른다.
+
+**유튜브 메타를 불러올 때 자동으로 자켓을 채우던 동작은 그대로 둔다** — 미리보기용이고,
+사용자가 "썸네일 쓰기"를 눌러야 실제로 저장된다. 자동 채움 시점에 서버를 때리면
+`불러오기` 한 번에 매번 Storage 파일이 생겨 고아가 쌓인다.
+
+- [ ] **Step 7: 검증**
+
+Run: `pnpm test:db`
+Expected: 81 passed (기존 74 + storage-youtube 7)
+
+Run: `pnpm test:e2e`
+Expected: 43 passed (Task 9 후 41 + 이번 2)
+
+Run: `pnpm test` / `pnpm build`
+Expected: 64 / 성공
+
+- [ ] **Step 8: 커밋**
+
+```bash
+git add lib/storage.js app/api/songbooks/\[id\]/jacket/youtube tests/db/storage-youtube.test.js tests/integration/songs.test.js app/manage/\[slug\]/songs/new/page.jsx
+git commit -m "feat: 유튜브 썸네일을 서버가 받아 자켓으로 저장"
+```
+
+---
+
 ## 완료 기준
 
 - [ ] `pnpm test` 64 passed
-- [ ] `pnpm test:db` 69 passed
-- [ ] `pnpm test:e2e` 41 passed
+- [ ] `pnpm test:db` 76 passed
+- [ ] `pnpm test:e2e` 43 passed
 - [ ] `pnpm build` 통과
 - [ ] **`app/api/songs/route.js`, `app/api/songs/bulk/route.js`, `app/api/upload/route.js` 가 존재하지 않는다**
 - [ ] `grep -rn "getDb()" app/` 결과 없음 — 라우트가 DB를 직접 만지지 않는다
