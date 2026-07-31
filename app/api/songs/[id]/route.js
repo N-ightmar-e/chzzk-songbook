@@ -31,7 +31,14 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ error: "자켓 경로가 올바르지 않아요." }, { status: 400 });
     }
 
+    const previous = existing.jacketPath;
     const song = await updateSong(id, input);
+    // 자켓이 바뀌었으면 이전 파일을 지운다. 스코프 가드를 반드시 태운다 —
+    // 정리 로직은 삭제 경로를 하나 더 늘리는 것이라, 가드 없이 넣으면
+    // 계획 2에서 막은 크로스 테넌트 삭제가 이 자리로 되살아난다.
+    if (previous && previous !== song.jacketPath && isJacketPathOf(existing.songbookId, previous)) {
+      await deleteJacket(previous);
+    }
     return NextResponse.json({ song: { ...song, jacketUrl: jacketPublicUrl(song.jacketPath) } });
   } catch (err) {
     return errorResponse(err);
