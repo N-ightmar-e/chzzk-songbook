@@ -869,3 +869,12 @@
   font-size: 0.875rem;
 }
 .manage-table th { color: var(--muted); font-weight: 500; }
+
+.manage-actions { display: flex; gap: 0.5rem; margin: 1.25rem 0; flex-wrap: wrap; }
+.manage-avatar { border-radius: 50%; }
+.manage-verified { margin-left: 0.25rem; color: var(--accent, #4ade80); font-size: 0.75rem; }
+.manage-invite {
+  display: grid; gap: 0.5rem; padding: 1rem; margin: 1rem 0;
+  border: 1px solid var(--line); border-radius: 0.75rem;
+}
+.manage-invite code { word-break: break-all; font-size: 0.8125rem; }

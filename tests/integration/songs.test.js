@@ -6,8 +6,24 @@ import { getDb } from "@/lib/db/client";
 import { upsertUserFromLogin } from "@/lib/db/users";
 import { createSongbook, updateSongbook } from "@/lib/db/songbooks";
 import { createSong } from "@/lib/db/songs";
+import { uploadJacket, deleteJacket, JACKETS_BUCKET } from "@/lib/storage";
 
 const SONG = { title: "사건의 지평선", artist: "윤하", genre: "K-POP" };
+
+// 1x1 투명 PNG
+const PNG_BYTES = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+function pngFile() {
+  return {
+    size: PNG_BYTES.length,
+    async arrayBuffer() {
+      return PNG_BYTES.buffer.slice(PNG_BYTES.byteOffset, PNG_BYTES.byteOffset + PNG_BYTES.byteLength);
+    },
+  };
+}
 
 describeE2e("곡 API 인가", () => {
   let server, owner, manager, stranger, operator, book;
@@ -128,6 +144,27 @@ describeE2e("곡 API 인가", () => {
       body: JSON.stringify({ jacketPath: "../다른노래책/훔친자켓.png" }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it("자켓을 교체하면 이전 파일이 지워진다", async () => {
+    const first = await uploadJacket(book.id, pngFile());
+    const second = await uploadJacket(book.id, pngFile());
+    const song = await createSong(book.id, { ...SONG, jacketPath: first.path });
+
+    const res = await fetch(`${server.baseUrl}/api/songs/${song.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ jacketPath: second.path }),
+    });
+    expect(res.status).toBe(200);
+
+    // 이전 파일은 사라지고 새 파일은 남아야 한다.
+    const { data } = await getDb().storage.from(JACKETS_BUCKET).list(book.id);
+    const names = (data ?? []).map((f) => f.name);
+    expect(names).not.toContain(first.path.split("/")[1]);
+    expect(names).toContain(second.path.split("/")[1]);
+
+    await deleteJacket(second.path);
   });
 
   it("업로드가 돌려준 형식의 자켓 경로는 받는다", async () => {

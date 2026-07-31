@@ -212,6 +212,52 @@ input {
   border-radius: 999px;
 }
 
+/* ───── 채널 배지 (치지직 인증) ───── */
+/* slug 는 선착순이라 사칭될 수 있지만, 이 배지가 여는 링크와 인증 마크는
+   치지직이 보증한 값이다. */
+
+.channel-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.channel-badge a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.channel-badge a:hover {
+  color: var(--ink);
+}
+
+.channel-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--line);
+}
+
+.verified {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 0.62rem;
+  line-height: 1;
+}
+
 /* ───── 컨트롤 바 ───── */
 
 .controls {
@@ -680,6 +726,19 @@ input {
   .song-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+/* ───── 랜딩 ───── */
+.landing { max-width: 40rem; margin: 0 auto; padding: 4rem 1.25rem; }
+.landing h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+.landing-lead { color: var(--muted); margin-bottom: 2rem; }
+.landing-error { color: var(--danger, #f87171); font-size: 0.875rem; margin-bottom: 1rem; }
+.landing-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 3rem; }
+.landing-how h2 { font-size: 1.125rem; margin-bottom: 0.75rem; }
+.landing-how ol { display: grid; gap: 0.5rem; padding-left: 1.25rem; color: var(--muted); }
+.landing-how code {
+  padding: 0.125rem 0.375rem; border-radius: 0.25rem;
+  background: var(--surface, rgba(255,255,255,0.06));
 }
 
 /* 리스트는 그리드보다 늦게 무너진다 — 5열이 들어갈 폭까지는 표 형태를 유지 */

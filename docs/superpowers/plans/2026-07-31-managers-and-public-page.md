@@ -48,8 +48,17 @@ app/api/songbooks/**              노래책·곡 API
 app/api/songs/[id]                곡 수정·삭제
 
 tests/helpers/server.js  통합 테스트 하네스 (실 HTTP)
-pnpm test 64 / pnpm test:db 65 / pnpm test:e2e 33
+lib/storage.js    isJacketPathOf — 자켓 경로가 해당 노래책 소유인지 판정(공용)
+pnpm test 64 / pnpm test:db 77 / pnpm test:e2e 47
 ```
+
+> **⚠️ 각 Task 의 "Expected: N passed" 숫자는 낡았다.** 이 계획은 계획 2가 끝나기 전에
+> 작성돼 `test:db` 65 / `test:e2e` 33 을 기준선으로 계산했다. 실제 기준선은 위와 같이
+> **`test:db` 77 / `test:e2e` 47** 이다(각각 +12 / +14).
+>
+> Task 1 의 숫자는 아래에서 보정했다. **Task 2 이후의 숫자는 보정하지 않았으므로,
+> 컨트롤러가 각 Task 를 디스패치하기 직전에 실측 기준선으로 다시 계산해 브리프에 적는다.**
+> 구현자는 절대값이 아니라 **증분**(이 Task 가 추가한 테스트 수)이 맞는지로 판단할 것.
 
 **아직 남아 있는 잔여 자산 (이 계획이 지운다):**
 
@@ -273,19 +282,151 @@ export async function refreshChannelInfo(channelIds) {
 }
 ```
 
-- [ ] **Step 6: 검증**
-
-Run: `pnpm test:db`
-Expected: 72 passed (기존 65 + users 3 + channels 4)
-
-Run: `pnpm test`
-Expected: 64 passed (변동 없음)
-
-- [ ] **Step 7: 커밋**
+- [ ] **Step 6: 커밋 (채널 동기화)**
 
 ```bash
 git add lib/db/users.js lib/db/channels.js lib/chzzk.js tests/db/users.test.js tests/db/channels.test.js
 git commit -m "feat: 채널 정보 동기화 추가하고 중복 channelId 처리"
+```
+
+- [ ] **Step 7: `mrUrl` 과 `keyLinks` 값의 스킴을 저장 시점에 검증한다**
+
+계획 2 인계 항목이다. `mrUrl` 은 지금 아무 검증 없이 임의 문자열을 받는다.
+**현재 이 값을 `href` 로 렌더하는 곳은 없어서 활성 취약점은 아니다** — 잠재 상태다.
+다만 이 계획이 시청자 페이지를 만들고 나면 누군가 링크로 거는 것이 자연스러워지고,
+그때 렌더 시점에만 막으면 **이미 저장된 오염 행이 남는다.** 그래서 저장 시점에 건다.
+
+`lib/db/songs.js` 에 순수 함수를 추가한다:
+
+```js
+// mrUrl·keyLinks 값은 링크로 렌더될 수 있다. javascript: 같은 스킴이 저장되면
+// 렌더하는 쪽에서 매번 막아야 하고, 한 곳이라도 빠지면 저장형 XSS 가 된다.
+// 저장 시점에 http/https 만 통과시켜 그 부담을 없앤다.
+export function isSafeLink(value) {
+  if (value == null || value === "") return true; // 비어 있는 건 허용한다
+  let url;
+  try {
+    url = new URL(String(value));
+  } catch {
+    return false;
+  }
+  return url.protocol === "http:" || url.protocol === "https:";
+}
+```
+
+`validateSongInput` 에 검사를 넣는다. **`validateSongInput` 은 POST·bulk·PATCH 세
+경로가 모두 거치므로 여기 한 곳에 넣으면 세 경로가 같은 판정을 쓴다.** 계획 2에서
+같은 불변식을 한 곳만 고쳐 비대칭이 남는 문제가 세 번 있었다 — 라우트마다 인라인으로
+복제하지 말 것.
+
+```js
+  if (!isSafeLink(input?.mrUrl)) errors.mrUrl = "MR 주소는 http/https 링크여야 해요.";
+  const badKey = Object.entries(input?.keyLinks ?? {})
+    .find(([, link]) => !isSafeLink(link));
+  if (badKey) errors.keyLinks = `${badKey[0]}키 링크는 http/https 링크여야 해요.`;
+```
+
+`keyLinks` 가 객체가 아닌 값(문자열·배열)일 때 `Object.entries` 가 던지지 않는지
+확인할 것 — 문자열이면 인덱스별로 순회하므로 링크 검사에 걸려 400 이 난다. 그게 맞다.
+
+`tests/songs.test.js`(단위, DB 불필요)에 추가한다. 없으면 만든다:
+
+```js
+  it("javascript: 스킴의 mrUrl 을 거부한다", () => {
+    const errors = validateSongInput({ ...VALID, mrUrl: "javascript:alert(1)" });
+    expect(errors.mrUrl).toBeTruthy();
+  });
+
+  it("http/https mrUrl 과 빈 값은 통과한다", () => {
+    expect(validateSongInput({ ...VALID, mrUrl: "https://youtu.be/abc" }).mrUrl).toBeUndefined();
+    expect(validateSongInput({ ...VALID, mrUrl: "" }).mrUrl).toBeUndefined();
+  });
+
+  it("keyLinks 값의 스킴도 검사한다", () => {
+    const errors = validateSongInput({ ...VALID, keyLinks: { "2": "javascript:alert(1)" } });
+    expect(errors.keyLinks).toBeTruthy();
+  });
+```
+
+`VALID` 는 `{ title: "곡", artist: "가수", genre: "발라드" }` 로 두면 된다.
+
+- [ ] **Step 8: 자켓을 교체할 때 이전 파일을 지운다**
+
+계획 2 인계 항목이다. 자켓을 바꾸면 이전 Storage 객체가 고아로 남는다.
+썸네일 버튼을 연타해도 매번 새 uuid 로 올리고 이전 것을 안 지운다.
+
+`app/api/songs/[id]/route.js` 의 PATCH 에서, `jacketPath` 가 실제로 **바뀔 때만**
+이전 파일을 지운다. `updateSong` 이 성공한 뒤에 지워야 한다 — 먼저 지우면 저장이
+실패했을 때 파일만 사라진다.
+
+```js
+    const previous = existing.jacketPath;
+    const song = await updateSong(id, input);
+    // 자켓이 바뀌었으면 이전 파일을 지운다. 스코프 가드를 반드시 태운다 —
+    // 정리 로직은 삭제 경로를 하나 더 늘리는 것이라, 가드 없이 넣으면
+    // 계획 2에서 막은 크로스 테넌트 삭제가 이 자리로 되살아난다.
+    if (previous && previous !== song.jacketPath && isJacketPathOf(existing.songbookId, previous)) {
+      await deleteJacket(previous);
+    }
+```
+
+`isJacketPathOf` 와 `deleteJacket` 은 이미 이 파일이 `@/lib/storage` 에서 가져오고
+있는지 확인하고, 없으면 import 에 추가한다.
+
+통합 테스트를 `tests/integration/songs.test.js` 의 "곡 API 인가" 스위트에 추가한다.
+실제 Storage 객체를 만들어야 하므로 `uploadJacket` 을 직접 부른다:
+
+```js
+  it("자켓을 교체하면 이전 파일이 지워진다", async () => {
+    const first = await uploadJacket(book.id, pngFile());
+    const second = await uploadJacket(book.id, pngFile());
+    const song = await createSong(book.id, { ...SONG, jacketPath: first.path });
+
+    const res = await fetch(`${server.baseUrl}/api/songs/${song.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ jacketPath: second.path }),
+    });
+    expect(res.status).toBe(200);
+
+    // 이전 파일은 사라지고 새 파일은 남아야 한다.
+    const { data } = await getDb().storage.from(JACKETS_BUCKET).list(book.id);
+    const names = (data ?? []).map((f) => f.name);
+    expect(names).not.toContain(first.path.split("/")[1]);
+    expect(names).toContain(second.path.split("/")[1]);
+
+    await deleteJacket(second.path);
+  });
+```
+
+`pngFile()` 은 `tests/db/storage.test.js` 의 `fakeFile(PNG_BYTES)` 와 같은 형태로
+이 파일 안에 만든다(헬퍼를 새 파일로 빼지 말 것 — 쓰는 곳이 둘뿐이다).
+`uploadJacket`, `deleteJacket`, `JACKETS_BUCKET` 을 import 에 추가한다.
+
+- [ ] **Step 9: 검증**
+
+Run: `pnpm test`
+Expected: 67 passed (기존 64 + Step 7 의 3)
+
+Run: `pnpm test:db`
+Expected: 84 passed (기존 77 + users 3 + channels 4)
+
+Run: `pnpm test:e2e`
+Expected: 48 passed (기존 47 + Step 8 의 1)
+
+Run: `pnpm build`
+Expected: 통과
+
+- [ ] **Step 10: 커밋 (이연 정리)**
+
+성격이 다르므로 Step 6 과 나눈다.
+
+```bash
+git add lib/db/songs.js tests/songs.test.js
+git commit -m "fix: MR 주소와 키 링크의 스킴을 저장 시점에 검증한다"
+
+git add "app/api/songs/[id]/route.js" tests/integration/songs.test.js
+git commit -m "fix: 자켓을 교체할 때 이전 파일을 지운다"
 ```
 
 ---

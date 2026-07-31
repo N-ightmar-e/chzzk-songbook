@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Null의 노래책",
+  title: "노래책",
   description: "치지직 노래방송 신청곡 목록 — 부를 수 있는 곡이 한눈에.",
 };
 
