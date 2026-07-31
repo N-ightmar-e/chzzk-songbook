@@ -17,8 +17,21 @@
 
 ## Supabase
 
-프로젝트 2개를 만들고, 각각의 SQL Editor에서
-`supabase/migrations/0001_initial_schema.sql` 을 실행한다.
+프로젝트를 만들고 SQL Editor에서 `supabase/migrations/` 의 파일을 **번호 순서대로 전부**
+실행한다. `0002` 는 Data API 권한 회수라 빠뜨리면 공개 키로 테이블이 열린 채 남는다.
+
+운영 데이터가 쌓이기 시작하면 테스트용 프로젝트를 따로 만든다(무료). DB 통합 테스트는
+매번 테이블을 비우므로, 하나를 공용으로 쓰면 `pnpm test:db` 가 개발 데이터를 지운다.
+
+적용 후 아래로 확인한다.
+
+```sql
+select count(*) from pg_tables where schemaname='public';              -- 8
+select count(*) from pg_tables where schemaname='public' and rowsecurity; -- 8
+select count(*) from pg_policies where schemaname='public';            -- 0
+```
+
+정책이 0개인 것은 의도다. 서버가 secret 키로 RLS를 우회해 접근하고, RLS는 심층방어로만 건다.
 
 - 운영용 → `.env` 의 `SUPABASE_URL` / `SUPABASE_SECRET_KEY`
 - 테스트용 → `.env.test` 의 같은 변수

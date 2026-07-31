@@ -145,8 +145,14 @@ AWS Cognito, WorkOS **다섯 개뿐이며**, 발급자는 OIDC Issuer Discovery 
 - `NEXT_PUBLIC_` 으로 노출되는 Supabase 키가 하나도 없다.
 - 모든 DB·Storage 접근은 Next.js Route Handler에서 `sb_secret_...` 키로만 이루어진다.
   이 키는 `BYPASSRLS` 속성의 `service_role` Postgres role로 동작하므로 RLS를 전부 우회한다.
-- 테이블을 Data API에 노출하지 않는다. 2026-05-30 변경으로 public 스키마의 새 테이블은
-  Data/GraphQL API에 자동 노출되지 않으므로(2026-10-30 강제) 기본값을 그대로 둔다.
+- 테이블을 Data API에 노출하지 않는다. **명시적으로 권한을 회수해야 한다.**
+  2026-05-30 변경(새 테이블 자동 미노출)은 **2026-10-30부터 강제**이므로, 그 이전에 만든
+  프로젝트에서는 여전히 `anon`/`authenticated` 에 자동 grant가 붙는다. 실측으로 확인했다 —
+  스키마 적용 직후 publishable·anon 키로 `users`·`user_tokens`·`sessions` 를 조회하면
+  HTTP 200이 돌아왔다(행은 RLS가 막아 빈 배열). 즉 방어가 1겹뿐이었다.
+  → `supabase/migrations/0002_revoke_data_api_access.sql` 로 `anon`/`authenticated` 의
+  테이블·시퀀스·함수 권한과 `public` 스키마 usage를 회수하고, default privileges도 회수해
+  이후 만들어질 객체에 자동 grant가 붙지 않게 한다. 적용 후 공개 키는 401(42501)을 받는다.
 - 그럼에도 **모든 테이블에 RLS를 enable하고 정책을 0개로 둔다**(deny-all). 설정 실수로
   테이블이 노출되더라도 행이 새지 않게 하는 심층방어다.
 
