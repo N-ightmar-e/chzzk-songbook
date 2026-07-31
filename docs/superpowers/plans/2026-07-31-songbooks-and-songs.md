@@ -482,9 +482,19 @@ function toSongbook(row) {
 }
 
 export async function createSongbook({ ownerId, slug, title, intro = null }) {
+  const value = normalizeSlug(slug);
+  // songbooks.slug의 DB unique 제약은 "현재" slug 충돌만 막는다.
+  // 이력(songbook_slug_history)에 있는 옛 slug는 이 제약을 통과하므로 여기서 별도 검사한다 —
+  // 빠뜨리면 스트리머가 주소를 바꾼 직후 제3자가 옛 주소를 가로채 사칭할 수 있다.
+  //
+  // check-then-insert 라 원자적이지 않지만 사칭 경로는 열리지 않는다:
+  // 새 slug 경쟁은 DB unique 제약이 최종 방어선이고, 이미 점유·이력에 있는 slug는
+  // 경쟁하는 양쪽 모두 isSlugTaken 이 참을 반환해 둘 다 거부된다.
+  if (await isSlugTaken(value)) failed({ message: "이미 사용 중인 주소" }, "노래책 생성");
+
   const { data, error } = await getDb()
     .from("songbooks")
-    .insert({ owner_id: ownerId, slug: normalizeSlug(slug), title, intro })
+    .insert({ owner_id: ownerId, slug: value, title, intro })
     .select()
     .single();
   if (error) failed(error, "노래책 생성");
