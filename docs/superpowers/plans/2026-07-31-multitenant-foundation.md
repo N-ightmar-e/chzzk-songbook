@@ -1440,6 +1440,8 @@ git commit -m "feat: Supabase 클라이언트와 users 저장소 추가"
 ### Task 8: 토큰 저장소 (암호화 + 갱신 락)
 
 **Files:**
+- Modify: `vitest.config.js` (Step 0)
+- Modify: `lib/db/client.js` (Step 0)
 - Create: `lib/db/tokens.js`
 - Create: `tests/db/tokens.test.js`
 
@@ -1452,6 +1454,74 @@ git commit -m "feat: Supabase 클라이언트와 users 저장소 추가"
   - `TokenRefreshBusyError` — 다른 요청이 갱신 중일 때
 
 **갱신 락 방식:** PostgREST는 `SELECT ... FOR UPDATE` 를 지원하지 않으므로, `refresh_lock_until` 에 대한 **조건부 UPDATE** 로 락을 선점한다. 업데이트된 행 수가 0이면 다른 요청이 이미 갱신 중이다. 리프레시 토큰이 일회용이라 이 보호가 없으면 동시 갱신 시 유효한 토큰을 잃는다.
+
+- [ ] **Step 0: 테스트 인프라 결함 두 건 수정**
+
+Task 8을 처음 실행했을 때 드러난 문제다. 둘 다 Task 9~11에서 그대로 재발하므로 여기서 고친다.
+
+**(A) DB 테스트 파일 간 경합.** vitest는 테스트 파일을 기본으로 병렬 실행한다. `tests/db/` 의
+파일들은 `beforeEach` 에서 `truncateAll` 로 **같은 실 DB**를 비우므로, 두 파일이 동시에 돌면
+서로의 데이터를 지운다. JS 모듈 상태는 파일별로 격리되지만 DB 행은 공유된다. Task 7까지는
+DB 테스트 파일이 하나뿐이라 드러나지 않았다.
+
+`vitest.config.js` 의 `test` 블록에 한 줄 추가한다:
+
+```js
+  test: {
+    environment: "node",
+    include: ["tests/**/*.test.js"],
+    // DB 테스트가 같은 실 DB를 truncate하므로 파일 병렬 실행을 끈다.
+    // 단위 테스트는 수백 ms라 직렬화 비용이 무시할 수준이다.
+    fileParallelism: false,
+    setupFiles: ["tests/helpers/setup.js"],
+  },
+```
+
+**(B) `vi.stubGlobal("fetch")` 가 Supabase 쿼리까지 가로챈다.** `@supabase/postgrest-js` 의
+`PostgrestBuilder` 는 쿼리를 만들 때마다 그 시점의 전역 `fetch` 를 참조한다
+(`src/PostgrestBuilder.ts:140-143` — `builder.fetch` 가 없으면 `this.fetch = fetch`).
+`lib/db/client.js` 가 `createClient` 에 fetch를 넘기지 않으므로, 치지직 API를 스텁하려고
+전역 `fetch` 를 갈아끼우면 Supabase 쿼리도 그 스텁을 탄다. 스텁 응답에 `.text()` 가 없어
+`TypeError: res.text is not a function` 이 나고, "동시 갱신" 테스트의 호출 횟수도 Supabase
+쿼리가 섞여 잘못 세어진다.
+
+`lib/db/client.js` 를 아래로 교체한다:
+
+```js
+// Supabase 서버 클라이언트. sb_secret_ 키를 쓰므로 RLS를 우회한다.
+// 이 모듈은 절대 클라이언트 컴포넌트에서 import되면 안 된다.
+import { createClient } from "@supabase/supabase-js";
+import { requireEnv } from "@/lib/env";
+
+// postgrest-js는 쿼리를 만들 때마다 그 시점의 전역 fetch를 참조한다.
+// 테스트가 치지직 API를 스텁하려고 전역 fetch를 갈아끼우면 Supabase 쿼리까지
+// 스텁을 타 버리므로, 모듈 로드 시점의 진짜 fetch를 붙잡아 명시적으로 넘긴다.
+const boundFetch = globalThis.fetch.bind(globalThis);
+
+let client = null;
+
+export function getDb() {
+  if (client) return client;
+  client = createClient(requireEnv("SUPABASE_URL"), requireEnv("SUPABASE_SECRET_KEY"), {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: boundFetch },
+  });
+  return client;
+}
+
+// 테스트에서 환경변수를 바꿔 끼울 때 쓴다.
+export function resetDb() {
+  client = null;
+}
+```
+
+- [ ] **Step 0b: 수정 후 기존 테스트가 그대로 통과하는지 확인**
+
+Run: `pnpm test`
+Expected: 36 passed
+
+Run: `pnpm test:db`
+Expected: 7 passed (users만 있는 상태)
 
 - [ ] **Step 1: 실패하는 테스트 작성**
 
