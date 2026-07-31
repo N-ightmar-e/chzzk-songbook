@@ -584,6 +584,20 @@ export async function isSlugTaken(slug) {
   return Boolean(past);
 }
 
+// 이 노래책이 그 slug 를 쓸 수 있는가. 자기 현재 slug 와 자기 이력은 허용한다.
+// changeSlug 와 라우트가 같은 판정을 써야 해서 여기로 뽑았다 — 복제하면 드리프트한다.
+export async function isSlugAvailableFor(songbookId, slug) {
+  const value = normalizeSlug(slug);
+
+  const holder = await findSongbookBySlug(value);
+  if (holder && holder.id !== songbookId) return false;
+
+  const history = await findSongbookByHistoricalSlug(value);
+  if (history && history.songbookId !== songbookId) return false;
+
+  return true;
+}
+
 export async function updateSongbook(id, { title, intro, isPublic, chzzkSyncEnabled }) {
   const patch = { updated_at: new Date().toISOString() };
   if (title !== undefined) patch.title = title;
@@ -609,13 +623,10 @@ export async function changeSlug(id, newSlug) {
   // createSongbook 과 같은 이유로 여기서도 검사한다. songbooks.slug 의 unique 제약은
   // "현재" slug 충돌만 막으므로, 남의 이력에만 남은 옛 주소는 아무 제약에도 안 걸린다.
   // 빠뜨리면 남이 주소를 바꾼 직후 그 주소를 가로채 사칭할 수 있다.
-  if (await findSongbookBySlug(value)) {
+  if (!(await isSlugAvailableFor(id, value))) {
     failed({ message: "이미 사용 중인 주소" }, "주소 변경");
   }
   const history = await findSongbookByHistoricalSlug(value);
-  if (history && history.songbookId !== id) {
-    failed({ message: "이미 사용 중인 주소" }, "주소 변경");
-  }
 
   // 이력을 먼저 남기고 나서 현재 slug 를 바꾼다. 순서가 반대면 update 커밋 직후
   // insert 커밋 직전에 옛 주소가 songbooks 에도 이력에도 없는 창이 생기고,
@@ -967,7 +978,7 @@ import { cookieForUser } from "../helpers/session.js";
 import { truncateAll } from "../helpers/db.js";
 import { getDb } from "@/lib/db/client";
 import { upsertUserFromLogin } from "@/lib/db/users";
-import { createSongbook } from "@/lib/db/songbooks";
+import { createSongbook, findSongbookById } from "@/lib/db/songbooks";
 
 describeE2e("노래책 API 인가", () => {
   let server, owner, manager, stranger, operator, book;
@@ -1039,6 +1050,38 @@ describeE2e("노래책 API 인가", () => {
       },
     );
     expect(res.status).toBe(404);
+  });
+
+  it("주소를 바꾼다", async () => {
+    const res = await patch(ownerCookie, { slug: "MovedBook" });
+    expect(res.status).toBe(200);
+    expect((await res.json()).songbook.slug).toBe("movedbook"); // 소문자 정규화
+  });
+
+  it("형식이 틀린 주소로 바꾸면 400", async () => {
+    expect((await patch(ownerCookie, { slug: "새벽감자" })).status).toBe(400);
+  });
+
+  it("남이 쓰는 주소로 바꾸면 409", async () => {
+    const other = await upsertUserFromLogin({ chzzkChannelId: "x", chzzkChannelName: "X" });
+    await createSongbook({ ownerId: other.id, slug: "taken", title: "남의것" });
+    expect((await patch(ownerCookie, { slug: "taken" })).status).toBe(409);
+  });
+
+  it("검증에 실패하면 다른 필드도 바뀌지 않는다", async () => {
+    // 검증 사이에 쓰기가 끼면 400을 받은 클라이언트가 "실패했다"고 믿는데
+    // 실제로는 title 만 바뀐 상태가 된다. 그걸 막는 테스트다.
+    const before = await findSongbookById(book.id);
+    const res = await patch(ownerCookie, { title: "바뀌면 안 됨", slug: "새벽감자" });
+    expect(res.status).toBe(400);
+
+    const after = await findSongbookById(book.id);
+    expect(after.title).toBe(before.title);
+    expect(after.slug).toBe(before.slug);
+  });
+
+  it("바꿀 내용이 없으면 400", async () => {
+    expect((await patch(ownerCookie, {})).status).toBe(400);
   });
 
   it("cross-origin 쓰기는 403", async () => {
@@ -1190,7 +1233,7 @@ import { NextResponse } from "next/server";
 import { requireSongbookAccess } from "@/lib/authz";
 import { errorResponse, requireSameOrigin } from "@/lib/http";
 import { normalizeSlug, validateSlug } from "@/lib/slug";
-import { updateSongbook, changeSlug, isSlugTaken } from "@/lib/db/songbooks";
+import { updateSongbook, changeSlug, isSlugAvailableFor } from "@/lib/db/songbooks";
 
 export async function PATCH(request, { params }) {
   try {
@@ -1201,6 +1244,9 @@ export async function PATCH(request, { params }) {
     await requireSongbookAccess(id, { min: "owner" });
 
     const input = await request.json();
+
+    // 검증을 전부 끝낸 뒤에 쓴다. 검증 사이에 쓰기가 끼면, 400/409 를 받은 클라이언트는
+    // "요청이 실패했다"고 믿는데 실제로는 일부 필드가 이미 바뀐 상태가 된다.
     const patch = {};
     if (input?.title !== undefined) {
       const title = String(input.title).trim();
@@ -1215,23 +1261,26 @@ export async function PATCH(request, { params }) {
       patch.chzzkSyncEnabled = Boolean(input.chzzkSyncEnabled);
     }
 
-    let songbook = Object.keys(patch).length > 0
-      ? await updateSongbook(id, patch)
-      : null;
-
+    let slug = null;
     if (input?.slug !== undefined) {
-      const slug = normalizeSlug(input.slug);
+      slug = normalizeSlug(input.slug);
       const slugError = validateSlug(slug);
       if (slugError) return NextResponse.json({ error: slugError }, { status: 400 });
-      if (await isSlugTaken(slug)) {
+      // isSlugAvailableFor 는 자기 현재 slug 와 자기 이력을 허용한다.
+      // changeSlug 도 같은 함수를 쓰므로 판정이 갈리지 않는다.
+      if (!(await isSlugAvailableFor(id, slug))) {
         return NextResponse.json({ error: "이미 쓰이는 주소예요." }, { status: 409 });
       }
-      songbook = await changeSlug(id, slug);
     }
 
-    if (!songbook) {
+    if (Object.keys(patch).length === 0 && slug === null) {
       return NextResponse.json({ error: "바꿀 내용이 없어요." }, { status: 400 });
     }
+
+    // 여기부터 쓰기. 위에서 모든 검증이 끝났다.
+    let songbook = Object.keys(patch).length > 0 ? await updateSongbook(id, patch) : null;
+    if (slug !== null) songbook = await changeSlug(id, slug);
+
     return NextResponse.json({ songbook });
   } catch (err) {
     return errorResponse(err);
@@ -2248,7 +2297,7 @@ rmdir app/api/songs/bulk app/api/upload 2>/dev/null || true
 - [ ] **Step 9: 테스트 확인**
 
 Run: `pnpm test:e2e`
-Expected: 전부 통과 (smoke 3 + 노래책 14 + 곡 13 + 제거확인 3 = 33)
+Expected: 전부 통과 (smoke 3 + 노래책 19 + 곡 13 + 제거확인 3 = 38)
 
 Run: `pnpm test && pnpm test:db`
 Expected: 64 / 74
@@ -2768,7 +2817,7 @@ Expected: 성공. 라우트 목록에 `/manage`, `/manage/[slug]`, `/manage/[slu
 `/manage/[slug]/songs/new` 가 있고 `/admin/*` 이 없어야 한다.
 
 Run: `pnpm test && pnpm test:db && pnpm test:e2e`
-Expected: 64 / 74 / 33
+Expected: 64 / 74 / 38
 
 수동 확인 — `pnpm dev --port 3001` 로 띄우고 (상위 세션에 요청):
 1. `/manage` 접속 → 로그인 안 됐으면 로그인 버튼
@@ -2869,7 +2918,7 @@ Run: `pnpm test:db`
 Expected: 69 passed (기존 74 − 삭제한 authz 5)
 
 Run: `pnpm test:e2e`
-Expected: 33 passed
+Expected: 38 passed
 
 - [ ] **Step 5: 커밋**
 
@@ -2884,7 +2933,7 @@ git commit -m "test: 이연 항목 정리하고 인가 검증을 통합 테스�
 
 - [ ] `pnpm test` 64 passed
 - [ ] `pnpm test:db` 69 passed
-- [ ] `pnpm test:e2e` 33 passed
+- [ ] `pnpm test:e2e` 38 passed
 - [ ] `pnpm build` 통과
 - [ ] **`app/api/songs/route.js`, `app/api/songs/bulk/route.js`, `app/api/upload/route.js` 가 존재하지 않는다**
 - [ ] `grep -rn "getDb()" app/` 결과 없음 — 라우트가 DB를 직접 만지지 않는다
