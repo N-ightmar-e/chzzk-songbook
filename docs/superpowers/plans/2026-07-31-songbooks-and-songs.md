@@ -760,24 +760,27 @@ git commit -m "feat: 노래책 저장소 추가하고 콜백의 직접 쿼리 �
 같은 이유로 일치해야 한다(두 프로세스가 같은 DB의 암호문을 읽는다).
 Step 6에서 이 테스트가 실패하면 **코드를 고치기 전에 두 파일의 키를 먼저 대조할 것.**
 
-- [ ] **Step 1: `tests/helpers/server.js` 작성**
+**⚠️ 서버는 실행 전체에 하나만 띄운다.** `describeE2e` 블록마다 `beforeAll` 에서 서버를
+띄우면, 블록이 늘어날수록 같은 포트에 여러 개가 겹치고 한 블록의 `afterAll` 이 다른 블록의
+서버를 죽인다. 증상은 "파일 하나씩 돌리면 전부 통과하는데 같이 돌리면 매번 다른 개수가
+실패"다. 그래서 vitest `globalSetup` 으로 한 번만 띄우고, `startServer()` 는 그 주소를
+돌려주기만 한다.
+
+- [ ] **Step 0: `tests/helpers/global-server.js` 작성 (실행당 서버 1개)**
 
 ```js
-// 통합 테스트용 개발 서버. 스위트 전체에서 한 번만 띄운다.
+// 통합 테스트용 개발 서버. vitest globalSetup 으로 실행 전체에서 딱 한 번 띄운다.
+//
+// describe 블록마다 띄우면 같은 포트에 여러 개가 겹치고, 한 블록의 afterAll 이
+// 다른 블록의 서버를 죽인다. 파일별로는 통과하는데 함께 돌리면 깨지는 형태로 나타난다.
 import { spawn, spawnSync } from "node:child_process";
-import { describe } from "vitest";
 
 const PORT = 3100; // 개발 서버(3001)와 겹치지 않게
 const BASE_URL = `http://localhost:${PORT}`;
 const READY_TIMEOUT_MS = 120_000;
 
-export const describeE2e =
-  process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY ? describe : describe.skip;
-
 // Windows에서 shell:true 로 spawn하면 cmd.exe → pnpm.cmd → node 트리가 생긴다.
-// child.kill() 은 최상위 cmd.exe 에만 신호를 보내므로 next dev 본체가 살아남아
-// 포트를 계속 물고 있고, 다음 실행이 포트 충돌로 실패한다.
-// /t 로 자식 프로세스까지, /f 로 강제 종료한다.
+// child.kill() 은 최상위 cmd.exe 에만 신호를 보내 next dev 본체가 포트를 계속 문다.
 function killTree(child) {
   if (process.platform === "win32") {
     spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore" });
@@ -800,7 +803,10 @@ async function waitForReady() {
   throw new Error(`개발 서버가 ${READY_TIMEOUT_MS}ms 안에 뜨지 않았습니다.`);
 }
 
-export async function startServer() {
+export async function setup() {
+  // .env.test 가 없으면 통합 테스트가 전부 skip되므로 서버도 띄우지 않는다.
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SECRET_KEY) return () => {};
+
   const child = spawn("pnpm", ["exec", "next", "dev", "--port", String(PORT)], {
     stdio: "ignore",
     shell: process.platform === "win32",
@@ -814,14 +820,51 @@ export async function startServer() {
     throw err;
   }
 
+  // 워커 프로세스가 이 값을 상속받는다.
+  process.env.E2E_BASE_URL = BASE_URL;
+
+  return () => killTree(child);
+}
+```
+
+- [ ] **Step 1: `tests/helpers/server.js` 작성**
+
+```js
+// 통합 테스트에서 서버 주소를 얻는 얇은 헬퍼.
+// 실제 기동·종료는 globalSetup(tests/helpers/global-server.js)이 실행당 한 번만 한다.
+import { describe } from "vitest";
+
+export const describeE2e =
+  process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY ? describe : describe.skip;
+
+// 시그니처는 유지한다 — 테스트 파일이 beforeAll/afterAll 에서 그대로 쓴다.
+// 서버를 새로 띄우지 않고, 이미 떠 있는 주소를 돌려주기만 한다.
+export async function startServer() {
+  const baseUrl = process.env.E2E_BASE_URL;
+  if (!baseUrl) {
+    throw new Error(
+      "E2E_BASE_URL 이 없습니다. vitest.config.js 의 globalSetup 설정을 확인하세요.",
+    );
+  }
   return {
-    baseUrl: BASE_URL,
+    baseUrl,
     stop() {
-      killTree(child);
+      // 종료는 globalSetup 의 teardown 이 담당한다. 여기서 죽이면
+      // 아직 실행 중인 다른 describe 블록이 서버를 잃는다.
     },
   };
 }
 ```
+
+`vitest.config.js` 의 `test` 블록에 `globalSetup` 을 추가한다:
+
+```js
+    globalSetup: ["tests/helpers/global-server.js"],
+```
+
+**환경변수가 워커로 전달되지 않으면** `process.env` 대신 vitest 의 `provide`/`inject` API를
+쓴다(`setup({ provide })` 에서 `provide("e2eBaseUrl", BASE_URL)`, 테스트에서
+`inject("e2eBaseUrl")`). 그 경우 `startServer` 가 `inject` 를 쓰도록 바꾸고 보고할 것.
 
 - [ ] **Step 2: `tests/helpers/session.js` 작성**
 
