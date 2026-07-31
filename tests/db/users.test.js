@@ -54,4 +54,32 @@ describeDb("lib/db/users", () => {
     expect(await findUserById("00000000-0000-0000-0000-000000000000")).toBeNull();
     expect(await findUserByChannelId("없는채널")).toBeNull();
   });
+
+  it("같은 channelId가 중복으로 들어와도 던지지 않는다", async () => {
+    // Postgres는 같은 upsert 문에서 같은 행을 두 번 고치면
+    // "ON CONFLICT DO UPDATE command cannot affect row a second time" 을 던진다.
+    // 치지직 관리자 목록이 중복을 줄 수 있으므로 함수가 스스로 정규화해야 한다.
+    const users = await ensurePlaceholderUsers([
+      { channelId: "dup", channelName: "첫번째" },
+      { channelId: "dup", channelName: "두번째" },
+    ]);
+    expect(users).toHaveLength(1);
+  });
+
+  it("falsy channelId를 걸러낸다", async () => {
+    const users = await ensurePlaceholderUsers([
+      { channelId: "", channelName: "빈값" },
+      { channelId: null, channelName: "널" },
+      { channelId: "ok", channelName: "정상" },
+    ]);
+    expect(users).toHaveLength(1);
+    expect(users[0].chzzkChannelId).toBe("ok");
+  });
+
+  it("toUser가 channelSyncedAt을 매핑한다", async () => {
+    const [user] = await ensurePlaceholderUsers([
+      { channelId: "synced", channelName: "동기화됨" },
+    ]);
+    expect(user.channelSyncedAt).toBeTruthy();
+  });
 });
