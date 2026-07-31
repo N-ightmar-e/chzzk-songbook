@@ -3,7 +3,7 @@ import { requireSongbookAccess, currentUser, accessLevel, AuthzError } from "@/l
 import { errorResponse, requireSameOrigin } from "@/lib/http";
 import { findSongbookById } from "@/lib/db/songbooks";
 import { listSongs, createSong, countSongs, validateSongInput } from "@/lib/db/songs";
-import { jacketPublicUrl } from "@/lib/storage";
+import { jacketPublicUrl, isJacketPathOf } from "@/lib/storage";
 
 const MAX_SONGS_PER_SONGBOOK = 5000;
 
@@ -41,6 +41,10 @@ export async function POST(request, { params }) {
     const errors = validateSongInput(input);
     if (Object.keys(errors).length > 0) {
       return NextResponse.json({ errors }, { status: 400 });
+    }
+
+    if (input?.jacketPath != null && !isJacketPathOf(id, input.jacketPath)) {
+      return NextResponse.json({ error: "자켓 경로가 올바르지 않아요." }, { status: 400 });
     }
 
     if ((await countSongs(id)) >= MAX_SONGS_PER_SONGBOOK) {

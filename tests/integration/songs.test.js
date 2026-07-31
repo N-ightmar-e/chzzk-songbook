@@ -142,6 +142,37 @@ describeE2e("곡 API 인가", () => {
     expect((await res.json()).song.jacketPath).toBe(valid);
   });
 
+  it("곡 등록이 남의 노래책 자켓 경로를 받지 않는다", async () => {
+    const foreign = "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222.jpg";
+    const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}/songs`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ ...SONG, jacketPath: foreign }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("일괄 등록이 남의 노래책 자켓 경로를 받지 않는다", async () => {
+    const foreign = "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222.jpg";
+    const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}/songs/bulk`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ songs: [SONG, { ...SONG, jacketPath: foreign }] }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("곡 등록이 자기 노래책의 자켓 경로는 받는다", async () => {
+    const own = `${book.id}/00000000-0000-0000-0000-000000000000.webp`;
+    const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}/songs`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ ...SONG, jacketPath: own }),
+    });
+    expect(res.status).toBe(201);
+    expect((await res.json()).song.jacketPath).toBe(own);
+  });
+
   it("없는 곡은 404", async () => {
     const res = await fetch(
       `${server.baseUrl}/api/songs/00000000-0000-0000-0000-000000000000`,

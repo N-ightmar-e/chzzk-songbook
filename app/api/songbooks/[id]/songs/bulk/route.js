@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSongbookAccess } from "@/lib/authz";
 import { errorResponse, requireSameOrigin } from "@/lib/http";
 import { createSongs, countSongs, validateSongInput } from "@/lib/db/songs";
+import { isJacketPathOf } from "@/lib/storage";
 
 const MAX_PER_REQUEST = 1000;
 const MAX_SONGS_PER_SONGBOOK = 5000;
@@ -30,6 +31,12 @@ export async function POST(request, { params }) {
       if (Object.keys(errors).length > 0) {
         return NextResponse.json(
           { error: `${index + 1}번째 곡에 문제가 있어요.`, index, errors },
+          { status: 400 },
+        );
+      }
+      if (song?.jacketPath != null && !isJacketPathOf(id, song.jacketPath)) {
+        return NextResponse.json(
+          { error: `${index + 1}번째 곡의 자켓 경로가 올바르지 않아요.`, index },
           { status: 400 },
         );
       }

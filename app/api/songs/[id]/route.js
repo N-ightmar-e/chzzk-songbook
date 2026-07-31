@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireSongbookAccess, AuthzError } from "@/lib/authz";
 import { errorResponse, requireSameOrigin } from "@/lib/http";
 import { findSongById, updateSong, deleteSong, validateSongInput } from "@/lib/db/songs";
-import { deleteJacket, jacketPublicUrl } from "@/lib/storage";
+import { deleteJacket, jacketPublicUrl, isJacketPathOf } from "@/lib/storage";
 
 // 곡 → 노래책을 먼저 찾고, 그 노래책에 대한 권한을 본다.
 // 곡이 없을 때와 권한이 없을 때가 모두 404여야 존재가 누설되지 않는다.
@@ -27,15 +27,8 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ errors }, { status: 400 });
     }
 
-    // jacketPath 는 uploadJacket 이 돌려준 경로여야 한다.
-    // 임의 문자열을 허용하면 매직바이트 검증을 우회해 남의 자켓을 가리킬 수 있다.
-    if (input?.jacketPath !== undefined && input.jacketPath !== null) {
-      const expected = new RegExp(
-        `^${existing.songbookId}/[0-9a-f-]{36}\\.(jpg|png|webp)$`,
-      );
-      if (!expected.test(String(input.jacketPath))) {
-        return NextResponse.json({ error: "자켓 경로가 올바르지 않아요." }, { status: 400 });
-      }
+    if (input?.jacketPath != null && !isJacketPathOf(existing.songbookId, input.jacketPath)) {
+      return NextResponse.json({ error: "자켓 경로가 올바르지 않아요." }, { status: 400 });
     }
 
     const song = await updateSong(id, input);
@@ -49,11 +42,14 @@ export async function DELETE(request, { params }) {
   try {
     requireSameOrigin(request);
     const { id } = await params;
-    await requireSongAccess(id);
+    const existing = await requireSongAccess(id);
 
     const { jacketPath } = await deleteSong(id);
-    // DB만 지우면 Storage에 고아 파일이 쌓인다.
-    await deleteJacket(jacketPath);
+    // DB만 지우면 Storage에 고아 파일이 쌓인다. 다만 이 곡의 노래책에 속한
+    // 경로만 지운다 — 남의 노래책 자켓을 가리키는 행이 있어도 그 파일은 건드리지 않는다.
+    if (isJacketPathOf(existing.songbookId, jacketPath)) {
+      await deleteJacket(jacketPath);
+    }
     return NextResponse.json({ ok: true });
   } catch (err) {
     return errorResponse(err);
