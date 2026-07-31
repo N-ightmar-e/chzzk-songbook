@@ -1,10 +1,12 @@
 import { it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { describeE2e, startServer } from "../helpers/server.js";
+import { cookieForUser } from "../helpers/session.js";
 import { truncateAll } from "../helpers/db.js";
 import { getDb } from "@/lib/db/client";
 import { upsertUserFromLogin } from "@/lib/db/users";
 import { createSongbook, changeSlug, updateSongbook } from "@/lib/db/songbooks";
 import { createSong } from "@/lib/db/songs";
+import { addManager } from "@/lib/db/members";
 
 describeE2e("/@slug 시청자 페이지", () => {
   let server, owner, book;
@@ -50,5 +52,36 @@ describeE2e("/@slug 시청자 페이지", () => {
   it("비공개 노래책은 비로그인에게 404", async () => {
     await updateSongbook(book.id, { isPublic: false });
     expect((await fetch(`${server.baseUrl}/@dutto`)).status).toBe(404);
+  });
+
+  it("비공개 노래책을 소유자는 본다", async () => {
+    // 위 404 테스트만 있으면 "항상 404" 로 만들어도 통과한다.
+    // 참여자가 실제로 볼 수 있는지까지 봐야 판정이 뒤집히지 않았음을 안다.
+    await updateSongbook(book.id, { isPublic: false });
+    const res = await fetch(`${server.baseUrl}/@dutto`, {
+      headers: { cookie: await cookieForUser(owner) },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("듀토 노래책");
+  });
+
+  it("비공개 노래책을 매니저는 본다", async () => {
+    await updateSongbook(book.id, { isPublic: false });
+    const manager = await upsertUserFromLogin({ chzzkChannelId: "m", chzzkChannelName: "매니저" });
+    await addManager(book.id, manager.id, { source: "invite", invitedBy: owner.id });
+
+    const res = await fetch(`${server.baseUrl}/@dutto`, {
+      headers: { cookie: await cookieForUser(manager) },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("비공개 노래책은 타인에게 404", async () => {
+    await updateSongbook(book.id, { isPublic: false });
+    const stranger = await upsertUserFromLogin({ chzzkChannelId: "s", chzzkChannelName: "타인" });
+    const res = await fetch(`${server.baseUrl}/@dutto`, {
+      headers: { cookie: await cookieForUser(stranger) },
+    });
+    expect(res.status).toBe(404);
   });
 });
