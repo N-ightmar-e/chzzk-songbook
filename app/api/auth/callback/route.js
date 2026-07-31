@@ -5,15 +5,7 @@ import { upsertUserFromLogin } from "@/lib/db/users";
 import { createSession } from "@/lib/db/sessions";
 import { saveTokens } from "@/lib/db/tokens";
 import { setSessionCookie } from "@/lib/session";
-import { getDb } from "@/lib/db/client";
-
-// 이 유저가 노래책 소유자인지. 소유자의 토큰만 저장한다 —
-// 시청자 토큰은 쓸 데가 없고, 저장하지 않은 데이터는 유출되지 않는다.
-async function ownsSongbook(userId) {
-  const { data } = await getDb()
-    .from("songbooks").select("id").eq("owner_id", userId).limit(1);
-  return Boolean(data?.length);
-}
+import { ownsAnySongbook } from "@/lib/db/songbooks";
 
 export async function GET(request) {
   const url = new URL(request.url);
@@ -36,7 +28,7 @@ export async function GET(request) {
       chzzkChannelName: me.channelName,
     });
 
-    if (await ownsSongbook(user.id)) {
+    if (await ownsAnySongbook(user.id)) {
       await saveTokens(user.id, token);
     }
 
