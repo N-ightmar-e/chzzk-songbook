@@ -602,7 +602,7 @@ export default function NewSongPage() {
               type="button"
               className="btn btn-primary"
               onClick={submit}
-              disabled={saving}
+              disabled={saving || !songbookId}
             >
               {saving ? "등록하는 중" : "곡 등록하기"}
             </button>
