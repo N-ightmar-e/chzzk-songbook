@@ -69,6 +69,46 @@ describeDb("lib/db/songbooks", () => {
     ).rejects.toThrow();
   });
 
+  it("남의 이력에 남은 옛 주소로는 바꿀 수 없다", async () => {
+    // 피해자가 개명한 직후 공격자가 옛 주소를 가로채는 경로다.
+    // songbooks.slug 의 unique 제약은 "현재" 충돌만 막으므로 여기서 걸러야 한다.
+    const victim = await createSongbook({ ownerId: owner.id, slug: "old", title: "피해자" });
+    await changeSlug(victim.id, "new");
+
+    const attacker = await createSongbook({ ownerId: other.id, slug: "attacker", title: "공격자" });
+    await expect(changeSlug(attacker.id, "old")).rejects.toThrow();
+
+    // 옛 주소는 여전히 피해자의 것을 가리켜야 한다
+    expect((await findSongbookByHistoricalSlug("old")).currentSlug).toBe("new");
+  });
+
+  it("남이 현재 쓰는 주소로는 바꿀 수 없다", async () => {
+    const mine = await createSongbook({ ownerId: owner.id, slug: "mine", title: "A" });
+    await createSongbook({ ownerId: other.id, slug: "theirs", title: "B" });
+    await expect(changeSlug(mine.id, "theirs")).rejects.toThrow();
+  });
+
+  it("자기 옛 주소로는 되돌릴 수 있고 이력에서 사라진다", async () => {
+    // 남의 주소를 가로채는 게 아니므로 막을 이유가 없다.
+    // 되돌린 뒤 이력에 남겨두면 isSlugTaken 이 영원히 참이 되어 스스로도 못 쓰게 된다.
+    const book = await createSongbook({ ownerId: owner.id, slug: "first", title: "A" });
+    await changeSlug(book.id, "second");
+    const back = await changeSlug(book.id, "first");
+    expect(back.slug).toBe("first");
+    expect(await findSongbookByHistoricalSlug("first")).toBeNull();
+    // 직전 주소는 이력에 남는다
+    expect((await findSongbookByHistoricalSlug("second")).currentSlug).toBe("first");
+  });
+
+  it("주소를 바꾸는 동안 옛 주소가 비는 순간이 없다", async () => {
+    // 이력 insert 가 update 보다 먼저여야 한다. 순서가 반대면 그 사이에
+    // 옛 주소가 두 테이블 어디에도 없어 제3자가 가져갈 수 있다.
+    const book = await createSongbook({ ownerId: owner.id, slug: "window", title: "A" });
+    await changeSlug(book.id, "moved");
+    // 변경 후 옛 주소는 반드시 점유 상태여야 한다
+    expect(await isSlugTaken("window")).toBe(true);
+  });
+
   it("같은 노래책이 slug를 두 번 바꿔도 이력이 쌓인다", async () => {
     const book = await createSongbook({ ownerId: owner.id, slug: "a1", title: "A" });
     await changeSlug(book.id, "b1");
