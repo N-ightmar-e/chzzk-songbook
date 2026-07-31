@@ -73,6 +73,7 @@ export default function SongbookSettingsPage() {
     <main className="manage">
       <h1>{book.title} 설정</h1>
       <Link className="btn btn-ghost" href={`/manage/${slug}/songs`}>곡 관리</Link>
+      <Link className="btn btn-ghost" href={`/manage/${slug}/members`}>매니저</Link>
 
       {readOnly ? (
         <p className="manage-hint">설정 변경은 소유자만 할 수 있어요.</p>
@@ -111,6 +112,14 @@ export default function SongbookSettingsPage() {
               onChange={(e) => setForm({ ...form, isPublic: e.target.checked })}
             />
             시청자에게 공개
+          </label>
+          <label className="manage-check">
+            <input
+              type="checkbox"
+              checked={form.chzzkSyncEnabled ?? true}
+              onChange={(e) => setForm({ ...form, chzzkSyncEnabled: e.target.checked })}
+            />
+            치지직 채널 관리자를 매니저로 자동 등록
           </label>
           {error && <p className="manage-error">{error}</p>}
           {saved && <p className="manage-ok">저장했어요.</p>}
