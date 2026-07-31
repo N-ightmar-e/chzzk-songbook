@@ -1449,7 +1449,15 @@ Expected: FAIL — `Cannot find module '@/lib/db/songs'`
 - [ ] **Step 3: `lib/db/songs.js` 작성**
 
 ```js
-// songs 저장소. 모든 조회·쓰기가 songbook_id 스코프 안에서 일어난다.
+// songs 저장소.
+//
+// ⚠️ 이 모듈은 인가를 하지 않는다. 스코프도 함수마다 다르다:
+//   - listSongs / countSongs / createSong / createSongs — songbook_id 로 스코프된다
+//   - findSongById / updateSong / deleteSong — id 만으로 동작하며 **스코프 검사를 하지 않는다**
+//
+// 뒤의 셋은 호출자(라우트)가 곡 → 노래책을 찾아 requireSongbookAccess 로 인가한 뒤에
+// 불러야 한다. 이 서비스는 sb_secret_ 키가 RLS를 전부 우회하므로 라우트의 인가가
+// 유일한 방어선이다. "저장소가 알아서 격리해준다"고 오해하면 그 자리가 곧 데이터 노출이다.
 import { getDb } from "@/lib/db/client";
 import { failed } from "@/lib/db/errors";
 import { isUuid } from "@/lib/uuid";
