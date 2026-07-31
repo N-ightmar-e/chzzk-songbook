@@ -2836,6 +2836,26 @@ git commit -m "feat: 관리 화면을 노래책 스코프로 이설"
 이러면 이연 7·8번(매트릭스 4조합 미테스트, `isAuthz` 미단언)이 함께 해소된다 —
 매트릭스의 정본이 실제 HTTP를 타는 통합 테스트로 옮겨갔기 때문이다.
 
+- [ ] **Step 3b: 위조 쿠키 테스트가 쿠키명을 상수에서 가져오게 한다**
+
+`tests/integration/smoke.test.js` 의 위조 쿠키 테스트가 쿠키 이름을 리터럴
+`"songbook_session"` 으로 하드코딩하고 있다. 지금은 값이 맞아 통과하지만,
+`SESSION_COOKIE_NAME` 이 바뀌면 이 테스트는 **"알려진 쿠키명 + 잘못된 서명 거부"가 아니라
+"모르는 쿠키명"을 검증하게 된다.** 서버 응답은 두 경우 다 `user: null` 이라 실패로
+드러나지 않고, 테스트가 조용히 의미를 잃는다.
+
+import에 상수를 추가한다:
+
+```js
+import { SESSION_COOKIE_NAME } from "@/lib/session";
+```
+
+그리고 해당 테스트의 헤더를 바꾼다:
+
+```js
+      headers: { cookie: `${SESSION_COOKIE_NAME}=forged.value` },
+```
+
 - [ ] **Step 4: 검증**
 
 Run: `pnpm test`
