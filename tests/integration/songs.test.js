@@ -152,6 +152,24 @@ describeE2e("곡 API 인가", () => {
     );
     expect(res.status).toBe(404);
   });
+
+  it("썸네일 자켓도 인가를 거친다 — 타인은 404", async () => {
+    const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}/jacket/youtube`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: strangerCookie },
+      body: JSON.stringify({ videoId: "dQw4w9WgXcQ" }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("videoId 형식이 틀리면 400", async () => {
+    const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}/jacket/youtube`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ videoId: "../../etc/passwd" }),
+    });
+    expect(res.status).toBe(400);
+  });
 });
 
 describeE2e("제거된 무방비 라우트", () => {

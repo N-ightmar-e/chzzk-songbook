@@ -186,6 +186,25 @@ export default function NewSongPage() {
     }
   }
 
+  async function useYoutubeThumbnail(videoId) {
+    try {
+      const res = await fetch(`/api/songbooks/${songbookId}/jacket/youtube`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ videoId }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setStatus({ type: "error", message: body.error ?? "썸네일을 가져오지 못했어요." });
+        return;
+      }
+      setJacket(body.publicUrl);
+      setJacketPath(body.path);
+    } catch {
+      setStatus({ type: "error", message: "썸네일을 가져오지 못했어요." });
+    }
+  }
+
   const currentKeyLink = songKey === 0 ? mrUrl : keyLinks[String(songKey)] || "";
 
   function setCurrentKeyLink(url) {
@@ -381,10 +400,8 @@ export default function NewSongPage() {
                     <button
                       type="button"
                       className="btn btn-ghost"
-                      onClick={() => {
-                        setJacket(mrMeta.thumbnail);
-                        setJacketPath(null);
-                      }}
+                      onClick={() => useYoutubeThumbnail(mrMeta.videoId)}
+                      disabled={!songbookId}
                     >
                       유튜브 썸네일 쓰기
                     </button>
