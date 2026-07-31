@@ -132,16 +132,6 @@ input {
   color: var(--on-primary);
 }
 
-.demo-badge {
-  font-size: 0.68rem;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  letter-spacing: 0.06em;
-}
-
 /* ───── 버튼 ───── */
 
 .btn {

@@ -12,7 +12,11 @@
 1. 치지직 개발자센터에서 앱을 등록한다.
    **애플리케이션 ID·이름에 `chzzk`, `치지직`, `naver`, `네이버` 를 포함할 수 없다.**
 2. API Scope에 `유저 정보 조회` 와 `채널 관리자 조회` 를 포함한다.
-3. 로그인 리디렉션 URL에 `http://localhost:3000/api/auth/callback` 을 등록한다.
+3. 로그인 리디렉션 URL을 등록한다. **개발 서버 포트와 반드시 일치해야 한다.**
+   `.env` 의 `CHZZK_REDIRECT_URI` 와 치지직에 등록한 값, 그리고 `pnpm dev --port <포트>` 가
+   전부 같은 포트를 가리켜야 한다. 어긋나면 로그인 후 콜백이 조용히 실패한다
+   (증상: 로그인을 눌러도 아무 일도 일어나지 않음).
+   예: `http://localhost:3001/api/auth/callback` → `pnpm dev --port 3001`
 4. 최근 90일간 API Scope 사용량이 0이면 애플리케이션이 삭제되니 주의한다.
 
 ## Supabase
