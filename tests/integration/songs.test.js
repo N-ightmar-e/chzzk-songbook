@@ -153,13 +153,26 @@ describeE2e("곡 API 인가", () => {
   });
 
   it("일괄 등록이 남의 노래책 자켓 경로를 받지 않는다", async () => {
+    async function songCount() {
+      const { count } = await getDb()
+        .from("songs").select("id", { count: "exact", head: true })
+        .eq("songbook_id", book.id);
+      return count ?? 0;
+    }
+
     const foreign = "11111111-1111-1111-1111-111111111111/22222222-2222-2222-2222-222222222222.jpg";
+    const before = await songCount();
     const res = await fetch(`${server.baseUrl}/api/songbooks/${book.id}/songs/bulk`, {
       method: "POST",
       headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
       body: JSON.stringify({ songs: [SONG, { ...SONG, jacketPath: foreign }] }),
     });
     expect(res.status).toBe(400);
+
+    // 부분 등록이 없어야 한다 — 둘째 곡이 거부되면 멀쩡한 첫 곡도 들어가면 안 된다.
+    // 400을 받은 클라이언트는 "아무것도 안 들어갔다"고 믿는데 일부만 들어간 상태가 더 나쁘다.
+    // 절대값이 아니라 요청 전후 차이를 본다 — 이 스위트의 다른 곡이 섞여도 성립하게.
+    expect(await songCount()).toBe(before);
   });
 
   it("곡 등록이 자기 노래책의 자켓 경로는 받는다", async () => {
