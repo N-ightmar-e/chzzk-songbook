@@ -212,6 +212,52 @@ input {
   border-radius: 999px;
 }
 
+/* ───── 채널 배지 (치지직 인증) ───── */
+/* slug 는 선착순이라 사칭될 수 있지만, 이 배지가 여는 링크와 인증 마크는
+   치지직이 보증한 값이다. */
+
+.channel-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.channel-badge a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.channel-badge a:hover {
+  color: var(--ink);
+}
+
+.channel-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--line);
+}
+
+.verified {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 0.62rem;
+  line-height: 1;
+}
+
 /* ───── 컨트롤 바 ───── */
 
 .controls {
