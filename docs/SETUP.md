@@ -44,9 +44,8 @@ select count(*) from pg_policies where schemaname='public';            -- 0
 이 키는 RLS를 우회하므로 절대 클라이언트로 내보내지 않는다.
 `NEXT_PUBLIC_` 접두사를 붙이면 브라우저로 전송되므로 붙이지 않는다.
 
-> **값은 따옴표 없이 적는다.** `KEY=값` 이지 `KEY="값"` 이 아니다.
-> `.env.test` 파서(`tests/helpers/setup.js`)는 따옴표를 벗기지 않으므로,
-> 따옴표를 붙이면 값에 그대로 섞여 들어가 인증이 실패한다.
+> `.env.test` 파서(`tests/helpers/env-test.js`)는 `KEY="값"` / `KEY='값'` 의 따옴표를
+> 벗긴다. 값 자체에 따옴표를 넣어야 한다면 이 파서가 벗겨간다는 점을 기억한다.
 
 > **`.env` 와 `.env.test` 의 `SESSION_SECRET` 과 `TOKEN_ENCRYPTION_KEY` 는 같은 값이어야 한다.**
 > 통합 테스트(`pnpm test:e2e`)는 개발 서버를 **별도 프로세스로** 띄우고, 테스트 프로세스가
@@ -67,4 +66,11 @@ pnpm dev
 ```bash
 pnpm test        # 단위 테스트. DB 불필요
 pnpm test:db     # DB 통합 테스트. .env.test 필요
+pnpm test:e2e    # HTTP 통합 테스트. .env.test 필요, 포트 3100에 서버를 띄운다
 ```
+
+> **`pnpm test:db` 와 `pnpm test:e2e` 를 동시에 돌리지 않는다.** 운영·테스트 Supabase
+> 프로젝트를 공용하면 `truncateAll` 이 서로의 행을 지우고, e2e 는 포트 3100에 서버를
+> 띄우므로 두 프로세스가 서로를 죽인다. 증상이 "테스트가 가끔 무더기로 깨진다"
+> (특히 `truncateAll` 관련 FK 오류)로 나타난다. **테스트를 완화하지 말고 단독
+> 재실행으로 재현되는지부터 확인한다.**
