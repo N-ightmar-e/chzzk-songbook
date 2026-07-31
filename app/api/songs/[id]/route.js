@@ -27,6 +27,17 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ errors }, { status: 400 });
     }
 
+    // jacketPath 는 uploadJacket 이 돌려준 경로여야 한다.
+    // 임의 문자열을 허용하면 매직바이트 검증을 우회해 남의 자켓을 가리킬 수 있다.
+    if (input?.jacketPath !== undefined && input.jacketPath !== null) {
+      const expected = new RegExp(
+        `^${existing.songbookId}/[0-9a-f-]{36}\\.(jpg|png|webp)$`,
+      );
+      if (!expected.test(String(input.jacketPath))) {
+        return NextResponse.json({ error: "자켓 경로가 올바르지 않아요." }, { status: 400 });
+      }
+    }
+
     const song = await updateSong(id, input);
     return NextResponse.json({ song: { ...song, jacketUrl: jacketPublicUrl(song.jacketPath) } });
   } catch (err) {

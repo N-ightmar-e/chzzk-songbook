@@ -120,6 +120,28 @@ describeE2e("곡 API 인가", () => {
     expect(deleted.status).toBe(200);
   });
 
+  it("자켓 경로를 임의 값으로 덮어쓸 수 없다", async () => {
+    const song = await createSong(book.id, SONG);
+    const res = await fetch(`${server.baseUrl}/api/songs/${song.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ jacketPath: "../다른노래책/훔친자켓.png" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("업로드가 돌려준 형식의 자켓 경로는 받는다", async () => {
+    const song = await createSong(book.id, SONG);
+    const valid = `${book.id}/00000000-0000-0000-0000-000000000000.webp`;
+    const res = await fetch(`${server.baseUrl}/api/songs/${song.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", origin: server.baseUrl, cookie: ownerCookie },
+      body: JSON.stringify({ jacketPath: valid }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).song.jacketPath).toBe(valid);
+  });
+
   it("없는 곡은 404", async () => {
     const res = await fetch(
       `${server.baseUrl}/api/songs/00000000-0000-0000-0000-000000000000`,

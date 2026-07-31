@@ -4,6 +4,7 @@ import { cookieForUser } from "../helpers/session.js";
 import { truncateAll } from "../helpers/db.js";
 import { getDb } from "@/lib/db/client";
 import { upsertUserFromLogin } from "@/lib/db/users";
+import { SESSION_COOKIE_NAME } from "@/lib/session";
 
 describeE2e("통합 테스트 하네스", () => {
   let server;
@@ -34,7 +35,7 @@ describeE2e("통합 테스트 하네스", () => {
     const res = await fetch(`${server.baseUrl}/api/me`, {
       // 헤더 값은 ByteString(코드포인트 <= 255)이어야 한다. 한글을 넣으면 fetch가
       // 요청을 보내기도 전에 TypeError를 던져 서버 동작을 검증하지 못한다.
-      headers: { cookie: "songbook_session=forged.value" },
+      headers: { cookie: `${SESSION_COOKIE_NAME}=forged.value` },
     });
     const body = await res.json();
     expect(body.user).toBeNull();
