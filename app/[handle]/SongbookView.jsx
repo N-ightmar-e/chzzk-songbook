@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GENRES, formatKey, formatPrice } from "@/data/genres";
+import TopBar from "../TopBar";
 
 const PAGE_SIZE = 16; // 4x4
 
@@ -137,31 +138,11 @@ export default function SongbookView({ songbook, channel, songs }) {
 
   return (
     <div className="shell">
-      <header className="topbar">
-        <div className="wordmark">
-          노래책 <small>SONG BOOK</small>
-        </div>
-        <div className="auth-area">
-          {user ? (
-            <>
-              <span className="user-chip">
-                <span className="avatar" aria-hidden="true">♪</span>
-                {user.channelName}
-              </span>
-              <button className="btn btn-ghost" onClick={logout}>
-                로그아웃
-              </button>
-            </>
-          ) : (
-            <a className="btn btn-primary" href="/api/auth/login">
-              치지직으로 로그인
-            </a>
-          )}
-          <a className="btn btn-ghost" href="/manage">
-            노래책 관리
-          </a>
-        </div>
-      </header>
+      <TopBar user={user} onLogout={logout}>
+        <a className="btn btn-ghost" href="/manage">
+          노래책 관리
+        </a>
+      </TopBar>
 
       <section className="channel">
         <div className="channel-badge">
