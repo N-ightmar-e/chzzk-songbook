@@ -12,6 +12,8 @@
   --accent: oklch(0.83 0.125 85);
   --on-accent: oklch(0.24 0.06 85);
   --accent-soft: oklch(0.83 0.125 85 / 0.13);
+  --danger: oklch(0.75 0.16 25);
+  --ok: oklch(0.72 0.15 150);
   --font-body: "SUIT Variable", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
   --font-display: var(--font-body);
   --radius-sm: 8px;

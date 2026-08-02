@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { GENRES, PRICE_PRESETS, KEY_RANGE, formatKey, formatPrice } from "@/data/genres";
 import { kanaToHangul, hasKana } from "@/lib/kana";
 import { extractVideoId, suggestFromTitle } from "@/lib/youtube";
+import TopBar from "../../../../TopBar";
 import CsvImport from "./CsvImport";
 
 function AliasInput({ id, label, sub, value, onChange, aliases, onAliasesChange, error, suggests }) {
@@ -109,12 +110,14 @@ function AliasInput({ id, label, sub, value, onChange, aliases, onAliasesChange,
 export default function NewSongPage() {
   const { slug } = useParams();
   const [songbookId, setSongbookId] = useState(null);
+  const [user, setUser] = useState(null);
 
   // 라우트는 slug를 받지만 API는 노래책 id를 받는다.
   useEffect(() => {
     fetch("/api/me")
       .then((r) => r.json())
       .then((d) => {
+        setUser(d.user);
         const book = (d.songbooks ?? []).find((b) => b.slug === slug);
         setSongbookId(book?.id ?? null);
       })
@@ -271,6 +274,7 @@ export default function NewSongPage() {
 
   return (
     <div className="admin">
+      <TopBar user={user} />
       <header className="admin-top">
         <div>
           <h1>곡 등록</h1>
@@ -280,8 +284,8 @@ export default function NewSongPage() {
               : "노래책에 새 곡을 추가합니다. MR 링크를 먼저 넣으면 나머지가 자동으로 채워져요."}
           </p>
         </div>
-        <a className="btn btn-ghost" href="/">
-          노래책으로
+        <a className="btn btn-ghost" href={`/manage/${slug}/songs`}>
+          곡 목록으로
         </a>
       </header>
 

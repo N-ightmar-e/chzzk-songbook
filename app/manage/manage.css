@@ -1,7 +1,15 @@
+/* globals.css 의 .shell 과 같은 값이어야 한다. 어긋나면 곡 등록 화면만
+   폭이 넓어져 시청자 페이지에서 넘어올 때 내용이 튄다. */
 .admin {
-  max-width: 1180px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 0 24px 120px;
+  padding: 0 24px 96px;
+}
+
+/* .topbar 의 아래 여백(44px)에 .admin-top 의 위 여백이 더해져 벌어진다.
+   이 화면만 헤더 바로 아래에 자체 제목줄이 또 있어서 생기는 문제다. */
+.admin .topbar {
+  margin-bottom: 10px;
 }
 
 .admin-top {
@@ -846,35 +854,270 @@
 }
 
 /* ───── 관리 화면 ───── */
-.manage { max-width: 56rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
-.manage h1 { font-size: 1.5rem; margin-bottom: 1rem; }
-.manage-list { list-style: none; display: grid; gap: 0.75rem; margin: 1.5rem 0; }
-.manage-list li {
-  display: flex; align-items: center; gap: 0.75rem;
-  padding: 1rem; border: 1px solid var(--line); border-radius: 0.75rem;
-}
-.manage-list li a { display: grid; gap: 0.125rem; text-decoration: none; }
-.manage-list li a span { font-size: 0.8125rem; color: var(--muted); }
-.manage-role { margin-left: auto; font-size: 0.8125rem; color: var(--muted); }
-.manage-form { display: grid; gap: 1rem; max-width: 32rem; margin-top: 1.5rem; }
-.manage-form label { display: grid; gap: 0.375rem; font-size: 0.875rem; }
-.manage-check { display: flex !important; align-items: center; gap: 0.5rem; }
-.manage-prefix { font-size: 0.8125rem; color: var(--muted); }
-.manage-error { color: var(--danger, #f87171); font-size: 0.875rem; }
-.manage-ok { color: var(--ok, #4ade80); font-size: 0.875rem; }
-.manage-hint { color: var(--muted); font-size: 0.875rem; margin-top: 1rem; }
-.manage-table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
-.manage-table th, .manage-table td {
-  padding: 0.625rem 0.5rem; text-align: left; border-bottom: 1px solid var(--line);
-  font-size: 0.875rem;
-}
-.manage-table th { color: var(--muted); font-weight: 500; }
+/* 시청자 페이지와 같은 어휘를 쓴다 — 폭은 .shell, 빈 상태는 .empty, 배지는
+   .channel .stats 와 같은 알약 모양. 폭과 좌우 여백은 .shell 이 잡으므로
+   여기서 다시 정하지 않는다. 두 곳에서 정하면 화면마다 폭이 어긋난다. */
 
-.manage-actions { display: flex; gap: 0.5rem; margin: 1.25rem 0; flex-wrap: wrap; }
-.manage-avatar { border-radius: 50%; }
-.manage-verified { margin-left: 0.25rem; color: var(--accent, #4ade80); font-size: 0.75rem; }
-.manage-invite {
-  display: grid; gap: 0.5rem; padding: 1rem; margin: 1rem 0;
-  border: 1px solid var(--line); border-radius: 0.75rem;
+.manage {
+  padding-bottom: 24px;
 }
-.manage-invite code { word-break: break-all; font-size: 0.8125rem; }
+
+/* globals.css 의 .empty 는 가운데 정렬 안내문이라 버튼 자리가 없다.
+   관리 화면은 빈 상태에서 바로 다음 행동으로 보내야 해서 버튼을 넣는데,
+   .btn 이 inline-flex 라 그냥 두면 안내문 끝에 나란히 붙는다.
+   flex 로 바꿔 블록이 되게 하고 fit-content + auto 로 가운데 세운다. */
+.manage .empty .btn {
+  display: flex;
+  width: fit-content;
+  margin: 16px auto 0;
+}
+
+.manage-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 26px;
+}
+
+.manage-head h1 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(1.55rem, 3.4vw, 2.05rem);
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.manage-head .sub {
+  margin-top: 6px;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.manage-nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.manage-list {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.manage-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  transition: border-color 160ms var(--ease-out);
+}
+
+.manage-list li:hover {
+  border-color: oklch(0.42 0.02 25);
+}
+
+/* 색을 정해두지 않으면 브라우저 기본 보라색으로 나온다. 실제로 그렇게 나갔다.
+   .btn 이 붙은 링크는 자기 색이 있으니 이 클래스는 제목 링크에만 쓴다. */
+.manage-link {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.manage-link strong {
+  font-weight: 700;
+}
+
+.manage-link span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.manage-role {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.manage-form {
+  display: grid;
+  gap: 15px;
+  max-width: 34rem;
+  padding: 22px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.manage-form h2 {
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+.manage-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.manage-form input,
+.manage-form textarea {
+  width: 100%;
+  padding: 10px 13px;
+  font: inherit;
+  font-weight: 400;
+  color: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  transition: border-color 160ms var(--ease-out);
+}
+
+.manage-form textarea {
+  resize: vertical;
+}
+
+.manage-form input::placeholder,
+.manage-form textarea::placeholder {
+  color: var(--muted);
+}
+
+.manage-form input:focus,
+.manage-form textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.manage-check {
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+}
+
+.manage-check input {
+  width: auto;
+  accent-color: var(--primary);
+}
+
+/* /@ 는 입력칸과 한 줄에 있어야 최종 주소가 읽힌다.
+   label 이 grid 라 그냥 두면 접두사만 윗줄에 따로 떠 버린다. */
+.manage-address {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.manage-prefix {
+  flex: none;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.manage-error { color: var(--danger); font-size: 0.85rem; }
+.manage-ok { color: var(--ok); font-size: 0.85rem; }
+
+.manage-hint {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.manage-table {
+  width: 100%;
+  /* collapse 면 border-radius 가 잘리지 않는다 */
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.manage-table th,
+.manage-table td {
+  padding: 11px 14px;
+  text-align: left;
+  font-size: 0.86rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.manage-table thead th {
+  background: var(--surface-2);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.manage-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* globals.css 의 .tag 는 flex 안에서 쓰이던 인라인 요소라 셀 안에서는
+   위아래 패딩이 줄 높이에 반영되지 않는다. */
+.manage-table .tag {
+  display: inline-block;
+}
+
+.manage-table td:last-child {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.manage-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.manage-avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--line);
+}
+
+.manage-verified {
+  margin-left: 4px;
+  color: var(--accent);
+  font-size: 0.75rem;
+}
+
+.manage-invite {
+  display: grid;
+  gap: 9px;
+  justify-items: start;
+  padding: 16px;
+  margin-bottom: 18px;
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.manage-invite p {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.manage-invite code {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: 0.8rem;
+  word-break: break-all;
+}

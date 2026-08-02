@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import TopBar from "../../../TopBar";
 import "../../manage.css";
 
 const SYNC_MESSAGE = {
@@ -19,6 +20,7 @@ const SKIP_REASON = {
 export default function MembersPage() {
   const { slug } = useParams();
   const [book, setBook] = useState(null);
+  const [user, setUser] = useState(null);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState(null);
@@ -27,6 +29,7 @@ export default function MembersPage() {
 
   const load = useCallback(async () => {
     const me = await (await fetch("/api/me")).json();
+    setUser(me.user);
     const found = (me.songbooks ?? []).find((b) => b.slug === slug);
     setBook(found ?? null);
     if (found) {
@@ -95,81 +98,108 @@ export default function MembersPage() {
     }
   }
 
-  if (loading) return <main className="manage"><p>불러오는 중…</p></main>;
+  if (loading) {
+    return (
+      <div className="shell">
+        <TopBar user={null} />
+        <main className="manage"><p className="manage-hint">불러오는 중…</p></main>
+      </div>
+    );
+  }
   if (!book) {
     return (
-      <main className="manage">
-        <p>찾을 수 없어요.</p>
-        <Link className="btn btn-ghost" href="/manage">돌아가기</Link>
-      </main>
+      <div className="shell">
+        <TopBar user={user} />
+        <main className="manage">
+          <div className="empty">
+            <strong>찾을 수 없어요</strong>
+            주소가 바뀌었거나 접근 권한이 없는 노래책이에요.
+            <Link className="btn btn-ghost" href="/manage">노래책 관리로</Link>
+          </div>
+        </main>
+      </div>
     );
   }
 
   const isOwner = book.role === "owner";
 
   return (
-    <main className="manage">
-      <h1>{book.title} · 매니저</h1>
-      <Link className="btn btn-ghost" href={`/manage/${slug}`}>설정</Link>
-
-      {isOwner && (
-        <div className="manage-actions">
-          <button className="btn btn-ghost" type="button" onClick={sync} disabled={busy}>
-            치지직 관리자 동기화
-          </button>
-          <button className="btn btn-primary" type="button" onClick={invite} disabled={busy}>
-            초대 링크 만들기
-          </button>
+    <div className="shell">
+      <TopBar user={user} />
+      <main className="manage">
+        <div className="manage-head">
+          <div>
+            <h1>{book.title}</h1>
+            <p className="sub">매니저 {members.length}명</p>
+          </div>
+          <div className="manage-nav">
+            <Link className="btn btn-ghost" href={`/manage/${slug}`}>설정</Link>
+            <Link className="btn btn-ghost" href={`/manage/${slug}/songs`}>곡 관리</Link>
+          </div>
         </div>
-      )}
 
-      {notice && <p className="manage-hint">{notice}</p>}
+        {isOwner && (
+          <div className="manage-actions">
+            <button className="btn btn-ghost" type="button" onClick={sync} disabled={busy}>
+              치지직 관리자 동기화
+            </button>
+            <button className="btn btn-primary" type="button" onClick={invite} disabled={busy}>
+              초대 링크 만들기
+            </button>
+          </div>
+        )}
 
-      {inviteUrl && (
-        <div className="manage-invite">
-          <p>이 링크를 전달하세요. 7일 뒤 만료되고 한 번만 쓸 수 있어요.</p>
-          <code>{inviteUrl}</code>
-          <button
-            className="btn btn-ghost"
-            type="button"
-            onClick={() => navigator.clipboard?.writeText(inviteUrl)}
-          >
-            복사
-          </button>
-        </div>
-      )}
+        {notice && <p className="manage-hint">{notice}</p>}
 
-      {members.length === 0 ? (
-        <p className="manage-hint">아직 매니저가 없어요.</p>
-      ) : (
-        <ul className="manage-list">
-          {members.map((member) => (
-            <li key={member.userId}>
-              {member.user.chzzkChannelImage && (
-                <img
-                  src={member.user.chzzkChannelImage}
-                  alt=""
-                  width={32}
-                  height={32}
-                  className="manage-avatar"
-                />
-              )}
-              <span>
-                {member.user.chzzkChannelName}
-                {member.user.chzzkVerified && <span className="manage-verified" title="치지직 인증 채널">✓</span>}
-              </span>
-              <span className="manage-role">
-                {member.source === "chzzk_sync" ? "치지직 관리자" : "초대"}
-              </span>
-              {isOwner && (
-                <button className="btn btn-ghost" type="button" onClick={() => remove(member)} disabled={busy}>
-                  해제
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
+        {inviteUrl && (
+          <div className="manage-invite">
+            <p>이 링크를 전달하세요. 7일 뒤 만료되고 한 번만 쓸 수 있어요.</p>
+            <code>{inviteUrl}</code>
+            <button
+              className="btn btn-ghost"
+              type="button"
+              onClick={() => navigator.clipboard?.writeText(inviteUrl)}
+            >
+              복사
+            </button>
+          </div>
+        )}
+
+        {members.length === 0 ? (
+          <div className="empty">
+            <strong>아직 매니저가 없어요</strong>
+            치지직 채널 관리자를 동기화하거나, 초대 링크를 만들어 전달하세요.
+          </div>
+        ) : (
+          <ul className="manage-list">
+            {members.map((member) => (
+              <li key={member.userId}>
+                {member.user.chzzkChannelImage && (
+                  <img
+                    src={member.user.chzzkChannelImage}
+                    alt=""
+                    width={32}
+                    height={32}
+                    className="manage-avatar"
+                  />
+                )}
+                <span>
+                  {member.user.chzzkChannelName}
+                  {member.user.chzzkVerified && <span className="manage-verified" title="치지직 인증 채널">✓</span>}
+                </span>
+                <span className="manage-role">
+                  {member.source === "chzzk_sync" ? "치지직 관리자" : "초대"}
+                </span>
+                {isOwner && (
+                  <button className="btn btn-ghost" type="button" onClick={() => remove(member)} disabled={busy}>
+                    해제
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </main>
+    </div>
   );
 }

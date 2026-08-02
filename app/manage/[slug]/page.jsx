@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import TopBar from "../../TopBar";
 import "../manage.css";
 
 export default function SongbookSettingsPage() {
   const { slug } = useParams();
   const router = useRouter();
   const [book, setBook] = useState(null);
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({
     title: "", intro: "", isPublic: true, slug: "", chzzkSyncEnabled: true,
@@ -21,6 +23,7 @@ export default function SongbookSettingsPage() {
     fetch("/api/me")
       .then((r) => r.json())
       .then((d) => {
+        setUser(d.user);
         const found = (d.songbooks ?? []).find((b) => b.slug === slug);
         setBook(found ?? null);
         if (found) {
@@ -60,27 +63,50 @@ export default function SongbookSettingsPage() {
     }
   }
 
-  if (loading) return <main className="manage"><p>불러오는 중…</p></main>;
+  if (loading) {
+    return (
+      <div className="shell">
+        <TopBar user={null} />
+        <main className="manage"><p className="manage-hint">불러오는 중…</p></main>
+      </div>
+    );
+  }
   if (!book) {
     return (
-      <main className="manage">
-        <p>찾을 수 없어요.</p>
-        <Link className="btn btn-ghost" href="/manage">돌아가기</Link>
-      </main>
+      <div className="shell">
+        <TopBar user={user} />
+        <main className="manage">
+          <div className="empty">
+            <strong>찾을 수 없어요</strong>
+            주소가 바뀌었거나 접근 권한이 없는 노래책이에요.
+            <Link className="btn btn-ghost" href="/manage">노래책 관리로</Link>
+          </div>
+        </main>
+      </div>
     );
   }
 
   const readOnly = book.role !== "owner";
 
   return (
-    <main className="manage">
-      <h1>{book.title} 설정</h1>
-      <Link className="btn btn-ghost" href={`/manage/${slug}/songs`}>곡 관리</Link>
-      <Link className="btn btn-ghost" href={`/manage/${slug}/members`}>매니저</Link>
+    <div className="shell">
+      <TopBar user={user} />
+      <main className="manage">
+        <div className="manage-head">
+          <div>
+            <h1>{book.title}</h1>
+            <p className="sub">노래책 설정</p>
+          </div>
+          <div className="manage-nav">
+            <Link className="btn btn-ghost" href={`/@${slug}`}>보기</Link>
+            <Link className="btn btn-ghost" href={`/manage/${slug}/songs`}>곡 관리</Link>
+            <Link className="btn btn-ghost" href={`/manage/${slug}/members`}>매니저</Link>
+          </div>
+        </div>
 
-      {readOnly ? (
-        <p className="manage-hint">설정 변경은 소유자만 할 수 있어요.</p>
-      ) : (
+        {readOnly ? (
+          <p className="manage-hint">설정 변경은 소유자만 할 수 있어요.</p>
+        ) : (
         <form className="manage-form" onSubmit={save}>
           <label>
             이름
@@ -92,13 +118,15 @@ export default function SongbookSettingsPage() {
           </label>
           <label>
             주소
-            <span className="manage-prefix">/@</span>
-            <input
-              value={form.slug}
-              onChange={(e) => setForm({ ...form, slug: e.target.value })}
-              maxLength={30}
-              required
-            />
+            <span className="manage-address">
+              <span className="manage-prefix">/@</span>
+              <input
+                value={form.slug}
+                onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                maxLength={30}
+                required
+              />
+            </span>
           </label>
           <label>
             소개
@@ -130,7 +158,8 @@ export default function SongbookSettingsPage() {
             {saving ? "저장 중…" : "저장"}
           </button>
         </form>
-      )}
-    </main>
+        )}
+      </main>
+    </div>
   );
 }
